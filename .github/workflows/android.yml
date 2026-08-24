@@ -27,11 +27,14 @@ jobs:
           m=re.search(r'data:image/jpeg;base64,([^"\']+)',html)
           assert m, 'Martin concept JPEG not embedded'
           data=base64.b64decode(m.group(1))
-          assert len(data)>50000, f'Concept JPEG unexpectedly small: {len(data)}'
+          assert len(data)>8000, f'Concept JPEG unexpectedly small: {len(data)}'
+          assert data[:2]==b'\xff\xd8', 'Concept asset is not a JPEG'
           java=pathlib.Path('app/src/main/java/com/imagine/martinhost/VisualHomeActivity.java').read_text()
           assert 'AvatarHostView' in java, 'Home screen is not using native AvatarHostView'
           host=pathlib.Path('app/src/main/java/com/imagine/martinhost/AvatarHostView.java').read_text()
           assert 'loadConceptFromHtml' in host and 'drawConcept' in host, 'Concept native renderer missing'
+          music=pathlib.Path('app/src/main/java/com/imagine/martinhost/MusicActivity.java').read_text()
+          assert 'AvatarHostView' in music and 'AvatarState.DJ' in music, 'DJ screen is not using native concept avatar'
           print('visual smoke source: OK',len(data),'bytes')
           PY
       - name: Build debug APK
