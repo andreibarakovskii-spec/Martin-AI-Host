@@ -19,8 +19,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - name: Validate Martin visual source
+        run: |
+          python3 - <<'PY'
+          import base64,re,pathlib
+          html=pathlib.Path('app/src/main/assets/martin_avatar.html').read_text()
+          m=re.search(r'data:image/jpeg;base64,([^"\']+)',html)
+          assert m, 'Martin concept JPEG not embedded'
+          data=base64.b64decode(m.group(1))
+          assert len(data)>50000, f'Concept JPEG unexpectedly small: {len(data)}'
+          java=pathlib.Path('app/src/main/java/com/imagine/martinhost/VisualHomeActivity.java').read_text()
+          assert 'AvatarHostView' in java, 'Home screen is not using native AvatarHostView'
+          host=pathlib.Path('app/src/main/java/com/imagine/martinhost/AvatarHostView.java').read_text()
+          assert 'loadConceptFromHtml' in host and 'drawConcept' in host, 'Concept native renderer missing'
+          print('visual smoke source: OK',len(data),'bytes')
+          PY
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
+      - name: Validate APK contents
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/martin_avatar.html'
+          echo 'APK visual asset: OK'
       - uses: actions/upload-artifact@v4
         with:
           name: Martin-AI-Host-debug-apk
