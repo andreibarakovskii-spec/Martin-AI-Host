@@ -4,102 +4,107 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.*;
 import android.util.AttributeSet;
+import android.util.Base64;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 
-/**
- * Stable avatar surface used by all screens. It deliberately does not depend on WebView.
- * When Cubism Core + renderer are available, this class can delegate drawing to Live2D.
- * Until then it renders a guaranteed-visible native fallback and preserves the same API.
- */
+/** Stable native avatar surface. Uses the concept Martin image already embedded in assets,
+ * so the hero can never become an empty WebView. Cubism/Rive can replace only the backend later. */
 public final class AvatarHostView extends View implements AvatarBackend {
-    private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private AvatarState state = AvatarState.IDLE;
-    private float lip = 0f, lookX = 0f, lookY = 0f, phase = 0f;
+    private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG), stroke=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private AvatarState state=AvatarState.IDLE;
+    private float lip=0f, lookX=0f, lookY=0f, phase=0f;
     private ValueAnimator animator;
+    private Bitmap concept;
     private boolean live2dAvailable;
 
-    public AvatarHostView(Context c){ super(c); init(); }
-    public AvatarHostView(Context c, AttributeSet a){ super(c,a); init(); }
+    public AvatarHostView(Context c){super(c);init();}
+    public AvatarHostView(Context c,AttributeSet a){super(c,a);init();}
 
     private void init(){
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        live2dAvailable = classExists("com.live2d.sdk.cubism.core.Live2DCubismCore");
-        animator = ValueAnimator.ofFloat(0f, 1f);
-        animator.setDuration(2400);
-        animator.setRepeatCount(ValueAnimator.INFINITE);
-        animator.setInterpolator(new LinearInterpolator());
-        animator.addUpdateListener(a -> { phase = (float)a.getAnimatedValue(); invalidate(); });
-        animator.start();
+        setLayerType(View.LAYER_TYPE_SOFTWARE,null);
+        live2dAvailable=classExists("com.live2d.sdk.cubism.core.Live2DCubismCore");
+        concept=loadConceptFromHtml();
+        animator=ValueAnimator.ofFloat(0f,1f);animator.setDuration(2600);animator.setRepeatCount(ValueAnimator.INFINITE);
+        animator.setInterpolator(new LinearInterpolator());animator.addUpdateListener(a->{phase=(float)a.getAnimatedValue();invalidate();});animator.start();
     }
 
-    private boolean classExists(String name){
-        try { Class.forName(name); return true; } catch(Throwable ignored){ return false; }
+    private boolean classExists(String n){try{Class.forName(n);return true;}catch(Throwable t){return false;}}
+
+    private Bitmap loadConceptFromHtml(){
+        try(InputStream in=getContext().getAssets().open("martin_avatar.html")){
+            ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
+            while((n=in.read(buf))>0)out.write(buf,0,n);
+            String s=out.toString(StandardCharsets.UTF_8.name());
+            int a=s.indexOf("data:image/jpeg;base64,");if(a<0)return null;a+="data:image/jpeg;base64,".length();
+            int b=s.indexOf('"',a);if(b<0)b=s.indexOf('\'',a);if(b<=a)return null;
+            byte[] data=Base64.decode(s.substring(a,b),Base64.DEFAULT);
+            return BitmapFactory.decodeByteArray(data,0,data.length);
+        }catch(Throwable t){return null;}
     }
 
-    @Override public void setState(AvatarState s){ state=s==null?AvatarState.IDLE:s; invalidate(); }
-    @Override public void setLipSync(float value){ lip=Math.max(0f,Math.min(1f,value)); invalidate(); }
-    @Override public void setLook(float x,float y){ lookX=Math.max(-1f,Math.min(1f,x)); lookY=Math.max(-1f,Math.min(1f,y)); invalidate(); }
-    @Override public boolean isLive2D(){ return live2dAvailable; }
-    @Override public String backendName(){ return live2dAvailable?"Cubism Core detected":"Native fallback"; }
+    @Override public void setState(AvatarState s){state=s==null?AvatarState.IDLE:s;invalidate();}
+    @Override public void setLipSync(float v){lip=Math.max(0f,Math.min(1f,v));invalidate();}
+    @Override public void setLook(float x,float y){lookX=Math.max(-1f,Math.min(1f,x));lookY=Math.max(-1f,Math.min(1f,y));invalidate();}
+    @Override public boolean isLive2D(){return live2dAvailable;}
+    @Override public String backendName(){return concept!=null?"Concept native renderer":"Native fallback";}
 
-    @Override protected void onDraw(Canvas c){
-        super.onDraw(c);
-        // Live2D renderer will replace this branch after Core/model are added.
-        drawFallback(c);
+    @Override protected void onDraw(Canvas c){super.onDraw(c);if(concept!=null)drawConcept(c);else drawFallback(c);}
+
+    private void drawConcept(Canvas c){
+        float w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
+        c.drawColor(Color.TRANSPARENT);
+        // backdrop glow
+        p.setShader(new RadialGradient(w*.5f,h*.43f,Math.min(w,h)*.58f,new int[]{0x665C2CFF,0x22311A78,0x00000000},null,Shader.TileMode.CLAMP));
+        c.drawCircle(w*.5f,h*.43f,Math.min(w,h)*.58f,p);p.setShader(null);
+
+        float bw=concept.getWidth(),bh=concept.getHeight();
+        float scale=Math.max(w/bw,h/bh);float sw=bw*scale,sh=bh*scale;
+        float dx=(w-sw)/2f,dy=(h-sh)/2f;
+        float bob=(float)Math.sin(phase*Math.PI*2)*h*.008f;
+        float rot=0f;
+        if(state==AvatarState.THINKING)rot=(float)Math.sin(phase*Math.PI*2)*.7f;
+        if(state==AvatarState.DJ)rot=(float)Math.sin(phase*Math.PI*4)*1.1f;
+        float extra=(state==AvatarState.LISTENING?1.012f:state==AvatarState.TALKING?1.018f:state==AvatarState.DJ?1.025f:1f);
+        c.save();c.rotate(rot,w*.5f,h*.52f);c.scale(extra,extra,w*.5f,h*.52f);c.translate(0,bob);
+        RectF dst=new RectF(dx,dy,dx+sw,dy+sh);p.setAlpha(state==AvatarState.SLEEPING?165:255);c.drawBitmap(concept,null,dst,p);p.setAlpha(255);c.restore();
+
+        // blink every ~5 seconds, short enough to feel alive
+        float blink=((phase>.972f&&phase<.995f)||(state==AvatarState.SLEEPING))?1f:0f;
+        if(blink>0)drawBlink(c,w,h);
+        drawStateFx(c,w,h);
+    }
+
+    private void drawBlink(Canvas c,float w,float h){
+        // Positions correspond to the concept portrait after center-crop; soft translucent lids avoid a cut-out look.
+        p.setColor(0xCC5A5662);p.setStyle(Paint.Style.FILL);
+        float y=h*.185f;float ew=w*.105f,eh=h*.035f;
+        c.drawOval(new RectF(w*.365f-ew,y-eh,w*.365f+ew,y+eh),p);
+        c.drawOval(new RectF(w*.595f-ew,y-eh,w*.595f+ew,y+eh),p);
+    }
+
+    private void drawStateFx(Canvas c,float w,float h){
+        stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(Math.max(3f,w*.006f));stroke.setColor(0xFFB65CFF);
+        if(state==AvatarState.LISTENING){
+            float pulse=.02f*(float)Math.sin(phase*Math.PI*4);for(int i=0;i<3;i++)c.drawCircle(w*.5f,h*.39f,w*(.12f+i*.045f+pulse),stroke);
+        }
+        if(state==AvatarState.THINKING){p.setColor(0xEEFFFFFF);for(int i=0;i<3;i++)c.drawCircle(w*(.76f+i*.055f),h*(.16f-i*.045f),w*(.012f+i*.008f),p);}
+        if(state==AvatarState.TALKING){
+            float v=Math.max(.18f,lip);p.setColor(0x884A22FF);c.drawRoundRect(new RectF(w*.16f,h*.80f,w*.84f,h*.86f),h*.03f,h*.03f,p);
+            p.setColor(0xFFB65CFF);c.drawRoundRect(new RectF(w*.16f,h*.80f,w*(.16f+.68f*v),h*.86f),h*.03f,h*.03f,p);
+        }
+        String badge=null;if(state==AvatarState.GAME)badge="🎮 Игра";else if(state==AvatarState.TOAST)badge="🥂 Тост";else if(state==AvatarState.DJ)badge="🎧 DJ";
+        if(badge!=null){p.setColor(0xD9111420);c.drawRoundRect(new RectF(w*.68f,h*.78f,w*.94f,h*.85f),h*.03f,h*.03f,p);p.setColor(Color.WHITE);p.setTextAlign(Paint.Align.CENTER);p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextSize(w*.034f);c.drawText(badge,w*.81f,h*.827f,p);}
+        if(state==AvatarState.SLEEPING){p.setColor(Color.WHITE);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(w*.06f);c.drawText("z Z z",w*.80f,h*.18f,p);}
     }
 
     private void drawFallback(Canvas c){
-        float w=getWidth(), h=getHeight();
-        if(w<=0||h<=0)return;
-        c.drawColor(Color.TRANSPARENT);
-        float bob=(float)Math.sin(phase*Math.PI*2)*h*.012f;
-        float cx=w*.5f, cy=h*.49f+bob;
-
-        // neon halo
-        p.setShader(new RadialGradient(cx,cy,Math.min(w,h)*.46f,new int[]{0x664B28FF,0x22371A78,0x00000000},null,Shader.TileMode.CLAMP));
-        c.drawCircle(cx,cy,Math.min(w,h)*.46f,p); p.setShader(null);
-
-        // body / hoodie
-        p.setColor(0xFF171922); RectF body=new RectF(w*.22f,h*.56f,w*.78f,h*.96f);
-        c.drawRoundRect(body,w*.12f,w*.12f,p);
-        stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(Math.max(3f,w*.009f));stroke.setColor(0xFF7B47DB);c.drawRoundRect(body,w*.12f,w*.12f,stroke);
-
-        // head
-        p.setColor(0xFF777783); c.drawOval(new RectF(w*.23f,h*.16f,w*.77f,h*.67f),p);
-        p.setColor(0xFF63636E); Path le=new Path();le.moveTo(w*.27f,h*.24f);le.lineTo(w*.34f,h*.04f);le.lineTo(w*.44f,h*.21f);le.close();c.drawPath(le,p);
-        Path re=new Path();re.moveTo(w*.56f,h*.21f);re.lineTo(w*.66f,h*.04f);re.lineTo(w*.73f,h*.24f);re.close();c.drawPath(re,p);
-        p.setColor(0xFFDB8E96); Path li=new Path();li.moveTo(w*.315f,h*.20f);li.lineTo(w*.345f,h*.09f);li.lineTo(w*.405f,h*.20f);li.close();c.drawPath(li,p);Path ri=new Path();ri.moveTo(w*.595f,h*.20f);ri.lineTo(w*.655f,h*.09f);ri.lineTo(w*.685f,h*.20f);ri.close();c.drawPath(ri,p);
-
-        // eyes
-        float ex=lookX*w*.012f, ey=lookY*h*.008f;
-        p.setColor(Color.WHITE); c.drawOval(new RectF(w*.31f,h*.31f,w*.45f,h*.47f),p); c.drawOval(new RectF(w*.55f,h*.31f,w*.69f,h*.47f),p);
-        p.setColor(0xFF72D93E); c.drawCircle(w*.38f+ex,h*.39f+ey,w*.035f,p); c.drawCircle(w*.62f+ex,h*.39f+ey,w*.035f,p);
-        p.setColor(0xFF101113); c.drawCircle(w*.38f+ex,h*.39f+ey,w*.014f,p); c.drawCircle(w*.62f+ex,h*.39f+ey,w*.014f,p);
-
-        // nose + mouth/lip sync
-        p.setColor(0xFFFF9BA5); Path nose=new Path();nose.moveTo(w*.47f,h*.49f);nose.lineTo(w*.53f,h*.49f);nose.lineTo(w*.50f,h*.53f);nose.close();c.drawPath(nose,p);
-        float open=(state==AvatarState.TALKING||state==AvatarState.GAME||state==AvatarState.TOAST)?Math.max(.25f,lip):.12f;
-        p.setColor(0xFF281921); c.drawOval(new RectF(w*.44f,h*.545f,w*.56f,h*(.565f+.055f*open)),p);
-
-        // hoodie title
-        p.setColor(Color.WHITE); p.setTextAlign(Paint.Align.CENTER); p.setTypeface(Typeface.DEFAULT_BOLD); p.setTextSize(w*.09f); c.drawText("MARTIN",cx,h*.79f,p);
-
-        // state accessories
-        if(state==AvatarState.DJ) drawHeadphones(c,w,h);
-        if(state==AvatarState.GAME) drawMic(c,w,h);
-        if(state==AvatarState.TOAST) drawGlass(c,w,h);
-        if(state==AvatarState.THINKING) drawThought(c,w,h);
-        if(state==AvatarState.LISTENING) drawWaves(c,w,h);
-        if(state==AvatarState.SLEEPING){ p.setTextSize(w*.07f);p.setColor(Color.WHITE);c.drawText("z Z z",w*.76f,h*.22f,p); }
+        float w=getWidth(),h=getHeight();c.drawColor(0xFF0A0B14);p.setColor(0xFF7B47DB);c.drawCircle(w*.5f,h*.42f,Math.min(w,h)*.28f,p);
+        p.setColor(Color.WHITE);p.setTextAlign(Paint.Align.CENTER);p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextSize(w*.08f);c.drawText("MARTIN",w*.5f,h*.47f,p);
+        p.setTextSize(w*.035f);p.setColor(0xFFDAD4FF);c.drawText("визуальный ресурс восстанавливается",w*.5f,h*.54f,p);
     }
 
-    private void drawHeadphones(Canvas c,float w,float h){stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(w*.035f);stroke.setColor(0xFFA75BFF);c.drawArc(new RectF(w*.25f,h*.18f,w*.75f,h*.56f),190,160,false,stroke);p.setColor(0xFF1A1B23);c.drawRoundRect(new RectF(w*.20f,h*.31f,w*.29f,h*.49f),w*.03f,w*.03f,p);c.drawRoundRect(new RectF(w*.71f,h*.31f,w*.80f,h*.49f),w*.03f,w*.03f,p);}
-    private void drawMic(Canvas c,float w,float h){p.setColor(0xFF20212B);c.drawCircle(w*.79f,h*.67f,w*.055f,p);stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(w*.028f);stroke.setColor(0xFF8F56FF);c.drawLine(w*.76f,h*.70f,w*.66f,h*.88f,stroke);}
-    private void drawGlass(Canvas c,float w,float h){p.setColor(0x99F2B84B);c.drawRoundRect(new RectF(w*.73f,h*.64f,w*.87f,h*.78f),w*.025f,w*.025f,p);stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(w*.012f);stroke.setColor(Color.WHITE);c.drawLine(w*.80f,h*.78f,w*.80f,h*.88f,stroke);c.drawLine(w*.75f,h*.89f,w*.85f,h*.89f,stroke);}
-    private void drawThought(Canvas c,float w,float h){p.setColor(0xDDFFFFFF);c.drawCircle(w*.78f,h*.22f,w*.018f,p);c.drawCircle(w*.84f,h*.16f,w*.028f,p);c.drawCircle(w*.91f,h*.09f,w*.05f,p);p.setColor(0xFF7443FF);p.setTextSize(w*.07f);p.setTextAlign(Paint.Align.CENTER);c.drawText("?",w*.91f,h*.115f,p);}
-    private void drawWaves(Canvas c,float w,float h){stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(w*.008f);stroke.setColor(0xFFA55AFF);float pulse=.02f*(float)Math.sin(phase*Math.PI*4);for(int i=0;i<3;i++){float r=w*(.11f+i*.04f+pulse);c.drawCircle(w*.5f,h*.41f,r,stroke);}}
-
-    @Override protected void onDetachedFromWindow(){ if(animator!=null)animator.cancel(); super.onDetachedFromWindow(); }
+    @Override protected void onDetachedFromWindow(){if(animator!=null)animator.cancel();super.onDetachedFromWindow();}
 }
