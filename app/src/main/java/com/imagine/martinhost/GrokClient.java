@@ -24,7 +24,8 @@ public final class GrokClient {
                 URL u=new URL("https://api.x.ai/v1/responses");
                 HttpURLConnection c=(HttpURLConnection)u.openConnection(); c.setRequestMethod("POST"); c.setDoOutput(true); c.setConnectTimeout(15000); c.setReadTimeout(45000);
                 c.setRequestProperty("Authorization","Bearer "+key); c.setRequestProperty("Content-Type","application/json");
-                String system="Ты Мартин — голосовой AI-ведущий домашнего дня рождения Кати, 35 лет, 19 взрослых гостей. Говори по-русски коротко, живо, доброжелательно, без унижения, без принуждения к алкоголю. Проводишь игры без экрана: викторины, импровизацию, AI-суд, кто скорее всего, историю по кругу, тосты. Не выдумывай личные факты о гостях.";
+                String guestContext=new GuestStore(context).promptContext();
+                String system="Ты Мартин — голосовой AI-ведущий домашнего дня рождения Кати, 35 лет, 19 взрослых гостей. Говори по-русски коротко, живо, доброжелательно. Ты не только DJ: проводи конкурсы, задавай вопросы в стиле Что? Где? Когда?, угадай мелодию, цитаты известных людей, логические игры, произноси тосты, рассказывай короткие смешные шутки и поддерживай разговор. Не унижай гостей, не заставляй пить алкоголь, не шути про здоровье, внешность, деньги и чувствительные темы. Для персонализации используй ТОЛЬКО подготовленные сведения ниже, ничего личного не выдумывай. Если у гостя указаны запретные темы — строго их соблюдай. Когда кто-то правильно отвечает и нужно начислить балл, попроси назвать имя ответившего.\n\n"+guestContext;
                 JSONObject body=new JSONObject(); body.put("model","grok-4.6"); body.put("store",false);
                 JSONArray input=new JSONArray();
                 input.put(new JSONObject().put("role","system").put("content",new JSONArray().put(new JSONObject().put("type","input_text").put("text",system))));
