@@ -7,11 +7,10 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
 
 public final class VisualHomeActivity extends Activity {
-    private MartinSpriteView martin; private TextView status; private boolean listening=false;
+    private AvatarHostView martin; private TextView status,backend; private boolean listening=false;
     @Override public void onCreate(Bundle b){super.onCreate(b);build();}
     private void build(){
         getWindow().setStatusBarColor(0xFF060711);getWindow().setNavigationBarColor(0xFF060711);
@@ -22,8 +21,9 @@ public final class VisualHomeActivity extends Activity {
         TextView gear=icon("⚙");top.addView(gear,new LinearLayout.LayoutParams(dp(46),dp(46)));root.addView(top);
 
         FrameLayout hero=new FrameLayout(this);hero.setBackground(gradient(new int[]{0xFF0B0D19,0xFF170A30,0xFF071426},30));
-        martin=new MartinSpriteView(this);martin.setState(MartinSpriteView.State.IDLE);hero.addView(martin,new FrameLayout.LayoutParams(-1,-1));
+        martin=new AvatarHostView(this);martin.setState(AvatarState.IDLE);hero.addView(martin,new FrameLayout.LayoutParams(-1,-1));
         TextView bubble=text("Привет! Я Мартин 👑\nГотов сделать эту вечеринку незабываемой!",15,Color.WHITE,true);bubble.setGravity(Gravity.CENTER);bubble.setPadding(dp(14),dp(9),dp(14),dp(9));bubble.setBackground(gradientStroke(new int[]{0xEE123BE3,0xEE7C25F5},22,0x66FFFFFF));FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(-1,-2);bp.gravity=Gravity.TOP;bp.setMargins(dp(22),dp(16),dp(22),0);hero.addView(bubble,bp);
+        backend=text("Avatar: "+martin.backendName(),10,0xFF9EA5BB,false);backend.setGravity(Gravity.RIGHT);FrameLayout.LayoutParams blp=new FrameLayout.LayoutParams(-1,-2);blp.gravity=Gravity.BOTTOM;blp.setMargins(dp(12),0,dp(12),dp(8));hero.addView(backend,blp);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,0,1);hp.setMargins(0,dp(3),0,dp(8));root.addView(hero,hp);
 
         status=text("Мартин готов",17,0xFFEFEAFF,true);status.setGravity(Gravity.CENTER);root.addView(status,new LinearLayout.LayoutParams(-1,dp(32)));
@@ -32,7 +32,7 @@ public final class VisualHomeActivity extends Activity {
         FrameLayout micWrap=new FrameLayout(this);TextView mic=text("🎙",36,Color.WHITE,true);mic.setGravity(Gravity.CENTER);mic.setBackground(gradientStroke(new int[]{0xFF173AFF,0xFF922CFF},50,0x99C995FF));FrameLayout.LayoutParams mlp=new FrameLayout.LayoutParams(dp(88),dp(88));mlp.gravity=Gravity.CENTER;micWrap.addView(mic,mlp);root.addView(micWrap,new LinearLayout.LayoutParams(-1,dp(100)));
         TextView hint=text("Скажи: «Мартин, поздравь Катю» · «Запусти игру» · «Включи музыку»",11,0xFF8D91A6,false);hint.setGravity(Gravity.CENTER);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(38)));
         root.addView(nav(0),new LinearLayout.LayoutParams(-1,dp(58)));setContentView(root);
-        mic.setOnClickListener(v->{listening=!listening;martin.setState(listening?MartinSpriteView.State.LISTENING:MartinSpriteView.State.HAPPY);status.setText(listening?"Слушаю внимательно…":"Мартин готов");mic.animate().scaleX(listening?1.08f:1f).scaleY(listening?1.08f:1f).setDuration(220).start();});
+        mic.setOnClickListener(v->{listening=!listening;martin.setState(listening?AvatarState.LISTENING:AvatarState.HAPPY);martin.setLook(listening?.35f:0f,listening?-.1f:0f);status.setText(listening?"Слушаю внимательно…":"Мартин готов");mic.animate().scaleX(listening?1.08f:1f).scaleY(listening?1.08f:1f).setDuration(220).start();});
         gear.setOnClickListener(v->open(VisualSettingsActivity.class));menu.setOnClickListener(v->open(GamesActivity.class));
     }
     private TextView icon(String s){TextView v=text(s,22,Color.WHITE,true);v.setGravity(Gravity.CENTER);v.setBackground(gradientStroke(new int[]{0xD9181B2D,0xD90D1020},24,0x334F5AFF));return v;}
