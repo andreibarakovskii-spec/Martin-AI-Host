@@ -61,8 +61,11 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell am force-stop com.imagine.martinhost
-            adb shell monkey -p com.imagine.martinhost -c android.intent.category.LAUNCHER 1
-            sleep 5
+            adb shell am start -W -n com.imagine.martinhost/.VisualHomeActivity
+            sleep 3
+            FOCUS="$(adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -n 2)"
+            echo "$FOCUS"
+            echo "$FOCUS" | grep -q 'com.imagine.martinhost/.VisualHomeActivity'
             adb exec-out screencap -p > martin-home.png
             test -s martin-home.png
             python3 -c "from PIL import Image,ImageStat; img=Image.open('martin-home.png').convert('RGB'); assert img.width>=720 and img.height>=1200,(img.width,img.height); stat=ImageStat.Stat(img); span=max(stat.extrema[i][1]-stat.extrema[i][0] for i in range(3)); assert span>80,f'Visual appears blank/flat: color span={span}'; print('android visual smoke: OK',img.size,'span',span)"
