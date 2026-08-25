@@ -45,7 +45,7 @@ public final class PartyDirector {
         if (mode == Mode.CHGK_RULES || mode == Mode.CHGK_WAIT_READY) {
             if (isYes(low)) {
                 mode = Mode.CHGK_QUESTION;
-                expectedAnswer = "тень";
+                expectedAnswer = "яма";
                 mode = Mode.CHGK_WAIT_ANSWER;
                 return Action.local("Вопрос. Что становится больше, если от него отнимать?", "game", "question_pose", "focused");
             }
@@ -63,9 +63,12 @@ public final class PartyDirector {
         if (mode == Mode.CHGK_WAIT_NAME) {
             String name = cleanupName(text);
             if (!name.isBlank()) {
-                guests.addScoreByName(name, pendingPoints);
-                mode = Mode.CHGK_RESULT;
-                return Action.local(name + ", плюс один балл. Отличное начало!", "happy", "celebrate", "happy");
+                boolean scored = guests.addScore(name, pendingPoints);
+                if (scored) {
+                    mode = Mode.CHGK_RESULT;
+                    return Action.local(name + ", плюс один балл. Отличное начало!", "happy", "celebrate", "happy");
+                }
+                return Action.local("Имя «" + name + "» не нашёл в списке гостей. Повтори имя, как оно записано в настройках.", "listening", "point_forward", "curious");
             }
             return Action.local("Не расслышал имя. Кто ответил?", "listening", "point_forward", "curious");
         }
