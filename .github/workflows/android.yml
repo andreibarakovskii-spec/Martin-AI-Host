@@ -43,6 +43,8 @@ jobs:
         run: |
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/martin_avatar.html'
           echo 'APK visual asset: OK'
+      - name: Install screenshot validator
+        run: python3 -m pip install --user pillow
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -62,14 +64,18 @@ jobs:
             adb shell monkey -p com.imagine.martinhost -c android.intent.category.LAUNCHER 1
             sleep 5
             adb exec-out screencap -p > martin-home.png
+            test -s martin-home.png
             python3 -c "from PIL import Image,ImageStat; img=Image.open('martin-home.png').convert('RGB'); assert img.width>=720 and img.height>=1200,(img.width,img.height); stat=ImageStat.Stat(img); span=max(stat.extrema[i][1]-stat.extrema[i][0] for i in range(3)); assert span>80,f'Visual appears blank/flat: color span={span}'; print('android visual smoke: OK',img.size,'span',span)"
       - name: Upload visual smoke screenshot
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Martin-visual-smoke
           path: martin-home.png
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+          if-no-files-found: warn
+      - name: Upload debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: Martin-AI-Host-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
