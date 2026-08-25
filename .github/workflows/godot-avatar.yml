@@ -40,9 +40,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
+          timeout 30s godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
           grep -q "MARTIN_SMOKE_OK states=9" godot-smoke.log
           ! grep -E "SCRIPT ERROR|Parse Error|Invalid get index|Node not found" godot-smoke.log
+
+      - name: Render Martin animation frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb mesa-utils
+          mkdir -p godot-avatar/render
+          timeout 40s xvfb-run -a -s '-screen 0 720x1280x24' godot --path godot-avatar --write-movie render/martin.png --fixed-fps 30 --resolution 720x1280 -- --avatar-smoke 2>&1 | tee godot-render.log
+          test -n "$(find godot-avatar/render -name 'martin*.png' -print -quit)"
+
+      - name: Upload Martin rendered frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Martin-Godot-render
+          path: |
+            godot-avatar/render/*.png
+            godot-render.log
+          if-no-files-found: warn
 
       - name: Upload Godot logs
         if: always()
