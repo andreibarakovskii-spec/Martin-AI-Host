@@ -30,6 +30,20 @@ const EXPRESSION_ALIASES := {
     "brow_up": ["browInnerUp", "browOuterUpLeft", "browOuterUpRight"],
 }
 
+const ANIMATION_ALIASES := {
+    "idle": ["idle", "Idle", "standing", "Standing"],
+    "listening": ["listening", "listen", "Idle", "idle"],
+    "thinking": ["thinking", "think", "Idle", "idle"],
+    "talking": ["talking", "talk", "cheering", "Cheering", "Idle", "idle"],
+    "happy": ["happy", "cheering", "Cheering", "celebrate", "Idle", "idle"],
+    "game": ["game", "cheering", "Cheering", "Idle", "idle"],
+    "toast": ["toast", "cheering", "Cheering", "Idle", "idle"],
+    "dj": ["dj", "dance", "Dance", "cheering", "Cheering", "Idle", "idle"],
+    "dance": ["dance", "Dance", "cheering", "Cheering", "Idle", "idle"],
+    "walk": ["walk", "walking", "Walking", "Walk"],
+    "run": ["run", "running", "Running", "Run"],
+}
+
 func _ready() -> void:
     var root: Node = self
     if not model_root_path.is_empty():
@@ -40,7 +54,7 @@ func _ready() -> void:
     if not animation_tree_path.is_empty(): animation_tree = get_node_or_null(animation_tree_path)
     _auto_discover(root)
     _index_blend_shapes()
-    print("MARTIN_MODEL_ADAPTER skeleton=%s face=%s morphs=%d" % [skeleton != null, face_mesh != null, blendshape_cache.size()])
+    print("MARTIN_MODEL_ADAPTER skeleton=%s face=%s morphs=%d animations=%d" % [skeleton != null, face_mesh != null, blendshape_cache.size(), get_animation_names().size()])
 
 func _auto_discover(root: Node) -> void:
     if root == null: return
@@ -68,7 +82,7 @@ func _auto_discover(root: Node) -> void:
         face_mesh = best_face
 
 func is_production_model_ready() -> bool:
-    return skeleton != null and face_mesh != null
+    return skeleton != null
 
 func get_capabilities() -> Dictionary:
     return {
@@ -77,7 +91,15 @@ func get_capabilities() -> Dictionary:
         "blend_shapes": blendshape_cache.keys(),
         "animation_tree": animation_tree != null,
         "animation_player": animation_player != null,
+        "animations": get_animation_names(),
     }
+
+func get_animation_names() -> Array[String]:
+    var result: Array[String] = []
+    if animation_player == null: return result
+    for item in animation_player.get_animation_list():
+        result.append(String(item))
+    return result
 
 func _index_blend_shapes() -> void:
     blendshape_cache.clear()
@@ -109,8 +131,23 @@ func travel(state_name: String) -> void:
         if playback != null and playback.has_method("travel"):
             playback.travel(state_name)
             return
-    if animation_player != null and animation_player.has_animation(state_name):
-        animation_player.play(state_name)
+    play_best_animation(state_name)
+
+func play_best_animation(state_name: String) -> bool:
+    if animation_player == null: return false
+    var aliases: Array = ANIMATION_ALIASES.get(state_name.to_lower(), [state_name])
+    for alias in aliases:
+        var requested := String(alias)
+        if animation_player.has_animation(requested):
+            animation_player.play(requested)
+            return true
+    var target := state_name.to_lower()
+    for candidate_name in animation_player.get_animation_list():
+        var candidate := String(candidate_name)
+        if candidate.to_lower().contains(target):
+            animation_player.play(candidate)
+            return true
+    return false
 
 func _set_first_available(aliases: Array, weight: float) -> void:
     if face_mesh == null: return
