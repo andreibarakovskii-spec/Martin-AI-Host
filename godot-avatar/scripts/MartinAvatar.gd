@@ -24,6 +24,7 @@ var smoke_index := 0
 var smoke_states := ["idle", "listening", "thinking", "talking", "happy", "game", "toast", "dj", "dance"]
 var smoke_elapsed := 0.0
 var smoke_mode := false
+var smoke_step_duration := 0.42
 
 func _ready() -> void:
     MartinBridge.state_changed.connect(_on_state_changed)
@@ -35,17 +36,24 @@ func _ready() -> void:
     _on_state_changed(MartinBridge.current_state)
     smoke_mode = "--avatar-smoke" in OS.get_cmdline_args()
     if smoke_mode:
+        print("MARTIN_SMOKE state=idle")
         _on_state_changed(smoke_states[0])
 
 func _process(delta: float) -> void:
     t += delta
     if smoke_mode:
         smoke_elapsed += delta
-        if smoke_elapsed > 2.2:
+        if smoke_elapsed > smoke_step_duration:
             smoke_elapsed = 0.0
-            smoke_index = (smoke_index + 1) % smoke_states.size()
+            smoke_index += 1
+            if smoke_index >= smoke_states.size():
+                print("MARTIN_SMOKE_OK states=", smoke_states.size())
+                get_tree().quit(0)
+                return
             _on_state_changed(smoke_states[smoke_index])
             speech_level = 0.75 if current_state == "talking" else 0.0
+            look_target = Vector2(0.35, -0.12) if current_state == "listening" else Vector2.ZERO
+            print("MARTIN_SMOKE state=", current_state)
     _animate_character(delta)
 
 func _animate_character(delta: float) -> void:
@@ -54,7 +62,6 @@ func _animate_character(delta: float) -> void:
     var sway := sin(t * 0.55 * tempo)
     var beat := sin(t * 5.2)
 
-    # Living idle motion
     rig.position.y = -0.18 + breath * 0.012
     body.scale = Vector3(1.0 + breath * 0.006, 1.0 + breath * 0.012, 1.0 + breath * 0.006)
 
@@ -72,15 +79,13 @@ func _animate_character(delta: float) -> void:
     head.rotation.x = lerp_angle(head.rotation.x, target_head_x, minf(1.0, delta * 6.0))
     head.rotation.y = lerp_angle(head.rotation.y, target_head_y, minf(1.0, delta * 6.0))
 
-    # Ears are highly readable on a cat, so use them as emotional cues.
     var ear_pitch := 0.0
     if current_state == "listening": ear_pitch = deg_to_rad(-14.0)
     if current_state == "happy": ear_pitch = deg_to_rad(-7.0)
     if current_state == "sleeping": ear_pitch = deg_to_rad(18.0)
-    ear_l.rotation.z = lerp_angle(ear_l.rotation.z, deg_to_rad(-7.0) + ear_pitch, delta * 7.0)
-    ear_r.rotation.z = lerp_angle(ear_r.rotation.z, deg_to_rad(7.0) - ear_pitch, delta * 7.0)
+    ear_l.rotation.z = lerp_angle(ear_l.rotation.z, deg_to_rad(-7.0) + ear_pitch, minf(1.0, delta * 7.0))
+    ear_r.rotation.z = lerp_angle(ear_r.rotation.z, deg_to_rad(7.0) - ear_pitch, minf(1.0, delta * 7.0))
 
-    # Speech: jaw follows audio level; body and paws add natural emphasis.
     jaw.rotation.x = deg_to_rad(clampf(speech_level, 0.0, 1.0) * 20.0)
     var talk_gesture := clampf(speech_level, 0.0, 1.0)
     var left_target := 0.0
@@ -103,14 +108,12 @@ func _animate_character(delta: float) -> void:
     arm_l.rotation.z = lerp_angle(arm_l.rotation.z, left_target, minf(1.0, delta * 6.0))
     arm_r.rotation.z = lerp_angle(arm_r.rotation.z, right_target, minf(1.0, delta * 6.0))
 
-    # Tail never freezes; more energy means wider/faster movement.
     var tail_amp := deg_to_rad(10.0 + energy * 16.0)
     if current_state == "happy": tail_amp *= 1.45
     if current_state == "dj" or current_state == "dance": tail_amp *= 1.7
     tail.rotation.y = sin(t * (1.6 + energy * 1.5)) * tail_amp
     tail.rotation.z = deg_to_rad(18.0) + cos(t * 1.1) * deg_to_rad(5.0)
 
-    # Tiny eye tracking makes the face feel reactive.
     eye_l.position.x = -0.245 + look_target.x * 0.014
     eye_r.position.x = 0.245 + look_target.x * 0.014
     eye_l.position.y = 0.105 - look_target.y * 0.010
