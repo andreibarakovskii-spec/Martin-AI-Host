@@ -14,3 +14,4 @@ textures/default_filters/use_nearest_mipmap_filter=false
 
 [autoload]
 MartinBridge="*res://scripts/MartinBridge.gd"
+MaterialLook="*res://scripts/MaterialLook.gd"
