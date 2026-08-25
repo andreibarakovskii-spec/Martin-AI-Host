@@ -1,0 +1,55 @@
+name: Godot Martin Avatar Smoke
+
+on:
+  push:
+    branches: [ godot-avatar-v1 ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  godot-avatar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot 4.7.2 stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/godotengine/godot/releases/tags/4.7.2-stable)"
+          URL="$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("stable_linux.x86_64.zip$")) | .browser_download_url' | head -n1)"
+          test -n "$URL" && test "$URL" != "null"
+          curl -fL "$URL" -o godot.zip
+          unzip -q godot.zip -d godot-bin
+          GODOT="$(find godot-bin -maxdepth 1 -type f -name 'Godot*linux*x86_64*' | head -n1)"
+          test -n "$GODOT"
+          chmod +x "$GODOT"
+          sudo mv "$GODOT" /usr/local/bin/godot
+          godot --version
+
+      - name: Import and validate Martin scene
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --path godot-avatar --editor --quit-after 120 2>&1 | tee godot-import.log
+          ! grep -E "SCRIPT ERROR|Parse Error|ERROR:" godot-import.log
+
+      - name: Run NPC behavior smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
+          grep -q "MARTIN_SMOKE_OK states=9" godot-smoke.log
+          ! grep -E "SCRIPT ERROR|Parse Error|Invalid get index|Node not found" godot-smoke.log
+
+      - name: Upload Godot logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Martin-Godot-smoke-logs
+          path: |
+            godot-import.log
+            godot-smoke.log
+          if-no-files-found: warn
