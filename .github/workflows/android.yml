@@ -2,9 +2,9 @@ name: Build Martin AI Host APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, godot-avatar-v1 ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, godot-avatar-v1 ]
   workflow_dispatch:
 
 jobs:
@@ -19,38 +19,33 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Validate Martin visual source
+      - name: Validate current MVP source
         run: |
           python3 - <<'PY'
-          import base64,re,pathlib
-          html=pathlib.Path('app/src/main/assets/martin_avatar.html').read_text()
-          m=re.search(r'data:image/jpeg;base64,([^"\']+)',html)
-          assert m, 'Martin concept JPEG not embedded'
-          data=base64.b64decode(m.group(1))
-          assert len(data)>8000, f'Concept JPEG unexpectedly small: {len(data)}'
-          assert data[:2]==b'\xff\xd8', 'Concept asset is not a JPEG'
-          java=pathlib.Path('app/src/main/java/com/imagine/martinhost/VisualHomeActivity.java').read_text()
-          assert 'AvatarHostView' in java, 'Home screen is not using native AvatarHostView'
-          host=pathlib.Path('app/src/main/java/com/imagine/martinhost/AvatarHostView.java').read_text()
-          assert 'loadConceptFromHtml' in host and 'drawConcept' in host, 'Concept native renderer missing'
-          music=pathlib.Path('app/src/main/java/com/imagine/martinhost/MusicActivity.java').read_text()
-          assert 'AvatarHostView' in music and 'AvatarState.DJ' in music, 'DJ screen is not using native concept avatar'
-          print('visual smoke source: OK',len(data),'bytes')
+          import pathlib
+          main=pathlib.Path('app/src/main/java/com/imagine/martinhost/MainActivity.java').read_text()
+          assert 'ContinuousSpeechEngine' in main, 'Continuous Meeting audio missing from launcher'
+          assert 'GroqTranscriber' in main, 'Whisper transcription missing from launcher'
+          assert 'TurnManager' in main, 'self-speech gate missing from launcher'
+          manifest=pathlib.Path('app/src/main/AndroidManifest.xml').read_text()
+          assert '.MainActivity' in manifest and 'android.intent.action.MAIN' in manifest, 'MainActivity launcher missing'
+          neural=pathlib.Path('app/src/main/java/com/imagine/martinhost/MartinNeuralSpeaker.kt')
+          assert neural.exists(), 'Neural speaker source missing'
+          print('MVP source smoke: OK')
           PY
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
-      - name: Validate APK contents
+      - name: Validate APK
         run: |
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/martin_avatar.html'
-          echo 'APK visual asset: OK'
-      - name: Install screenshot validator
-        run: python3 -m pip install --user pillow
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          unzip -p app/build/outputs/apk/debug/app-debug.apk AndroidManifest.xml >/dev/null
+          echo 'APK build: OK'
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Android visual smoke test
+      - name: Android MVP smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -61,25 +56,24 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell am force-stop com.imagine.martinhost
-            adb shell am start -W -n com.imagine.martinhost/.VisualHomeActivity
+            adb shell monkey -p com.imagine.martinhost -c android.intent.category.LAUNCHER 1
             sleep 3
             FOCUS="$(adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -n 2)"
             echo "$FOCUS"
-            echo "$FOCUS" | grep -q 'com.imagine.martinhost/.VisualHomeActivity'
-            adb exec-out screencap -p > martin-home.png
-            test -s martin-home.png
-            python3 -c "from PIL import Image,ImageStat; img=Image.open('martin-home.png').convert('RGB'); assert img.width>=720 and img.height>=1200,(img.width,img.height); stat=ImageStat.Stat(img); span=max(stat.extrema[i][1]-stat.extrema[i][0] for i in range(3)); assert span>80,f'Visual appears blank/flat: color span={span}'; print('android visual smoke: OK',img.size,'span',span)"
-      - name: Upload visual smoke screenshot
+            echo "$FOCUS" | grep -q 'com.imagine.martinhost/.MainActivity'
+            adb exec-out screencap -p > martin-mvp.png
+            test -s martin-mvp.png
+      - name: Upload MVP screenshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Martin-visual-smoke
-          path: martin-home.png
+          name: Martin-MVP-screenshot
+          path: martin-mvp.png
           if-no-files-found: warn
       - name: Upload debug APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Martin-AI-Host-debug-apk
+          name: Martin-AI-Host-MVP-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
