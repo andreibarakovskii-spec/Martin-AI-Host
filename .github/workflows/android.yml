@@ -23,15 +23,16 @@ jobs:
         run: |
           python3 - <<'PY'
           import pathlib
-          main=pathlib.Path('app/src/main/java/com/imagine/martinhost/MainActivity.java').read_text()
-          assert 'ContinuousSpeechEngine' in main, 'Continuous Meeting audio missing from launcher'
-          assert 'GroqTranscriber' in main, 'Whisper transcription missing from launcher'
-          assert 'TurnManager' in main, 'self-speech gate missing from launcher'
+          main=pathlib.Path('app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java').read_text()
+          assert 'ContinuousSpeechEngine' in main, 'Continuous Meeting audio missing from premium launcher'
+          assert 'GroqTranscriber' in main, 'Whisper transcription missing from premium launcher'
+          assert 'TurnManager' in main, 'self-speech gate missing from premium launcher'
+          assert 'MartinSpriteView' in main, 'Martin visual host missing from premium launcher'
           manifest=pathlib.Path('app/src/main/AndroidManifest.xml').read_text()
-          assert '.MainActivity' in manifest and 'android.intent.action.MAIN' in manifest, 'MainActivity launcher missing'
+          assert '.PremiumMainActivity' in manifest and 'android.intent.action.MAIN' in manifest, 'Premium launcher missing'
           neural=pathlib.Path('app/src/main/java/com/imagine/martinhost/MartinNeuralSpeaker.kt')
           assert neural.exists(), 'Neural speaker source missing'
-          print('MVP source smoke: OK')
+          print('Premium MVP source smoke: OK')
           PY
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
@@ -60,7 +61,7 @@ jobs:
             sleep 3
             FOCUS="$(adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -n 2)"
             echo "$FOCUS"
-            echo "$FOCUS" | grep -q 'com.imagine.martinhost/.MainActivity'
+            echo "$FOCUS" | grep -q 'com.imagine.martinhost/.PremiumMainActivity'
             adb exec-out screencap -p > martin-mvp.png
             test -s martin-mvp.png
       - name: Upload MVP screenshot
