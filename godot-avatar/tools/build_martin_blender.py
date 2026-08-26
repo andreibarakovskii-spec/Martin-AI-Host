@@ -20,8 +20,7 @@ print('MARTIN_ARMATURE', arm.name, 'bones=', len(arm.data.bones))
 print('MARTIN_BONES', ','.join(b.name for b in arm.data.bones))
 print('MARTIN_ACTIONS', ','.join(a.name for a in bpy.data.actions))
 
-# Old Blender files can open with a stale mode/active object. Normalize the context once,
-# then avoid context-sensitive bpy.ops for non-mesh helpers.
+# Normalize the old Blender scene before any edits.
 try:
     if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -33,35 +32,31 @@ arm.select_set(True)
 bpy.context.view_layer.objects.active = arm
 
 # Remove scene-only helpers and obvious pilot accessories when they are separate objects.
-remove_tokens = ('camera', 'light', 'plane', 'propeller', 'goggle', 'glass', 'hook', 'bag', 'satchel')
+remove_tokens = (
+    'camera', 'light', 'plane', 'propeller', 'goggle', 'glass',
+    'hook', 'bag', 'satchel', 'pilot_hat', 'helmet', 'aviator'
+)
 for obj in list(bpy.data.objects):
     low = obj.name.lower()
     if obj is arm:
         continue
     if obj.type in {'CAMERA', 'LIGHT'} or any(t in low for t in remove_tokens):
+        print('MARTIN_REMOVE', obj.name)
         bpy.data.objects.remove(obj, do_unlink=True)
 
-# Re-establish a valid active object after deleting helpers from the legacy source file.
 arm.select_set(True)
 bpy.context.view_layer.objects.active = arm
-
-# Replace texture references with the generated Martin texture while preserving source UVs.
-martin_image = None
-if TEXTURE and os.path.exists(TEXTURE):
-    martin_image = bpy.data.images.load(TEXTURE, check_existing=False)
-    martin_image.name = 'MartinTexture'
-    for mat in bpy.data.materials:
-        if not mat.use_nodes:
-            continue
-        for node in mat.node_tree.nodes:
-            if node.type == 'TEX_IMAGE' and node.image is not None:
-                node.image = martin_image
-                print('MARTIN_TEXTURE_REBOUND', mat.name, node.name)
 
 mesh_objects = [o for o in bpy.data.objects if o.type == 'MESH']
 if not mesh_objects:
     raise RuntimeError('No cat mesh found in CatPilot source')
+
+# Keep a snapshot of original names/materials before replacing the legacy Blender 2.77 materials.
+original_tags = {}
 for obj in mesh_objects:
+    mats = [slot.material.name for slot in obj.material_slots if slot.material is not None]
+    original_tags[obj.name] = (obj.name + ' ' + ' '.join(mats)).lower()
+    print('MARTIN_SOURCE_MESH', obj.name, 'materials=', ','.join(mats))
     for poly in obj.data.polygons:
         poly.use_smooth = True
 
@@ -82,15 +77,66 @@ def material(name, color, metallic=0.0, roughness=0.6, emission=None):
             if 'Emission Color' in bsdf.inputs:
                 bsdf.inputs['Emission Color'].default_value = (*emission, 1.0)
                 if 'Emission Strength' in bsdf.inputs:
-                    bsdf.inputs['Emission Strength'].default_value = 1.8
+                    bsdf.inputs['Emission Strength'].default_value = 1.25
             elif 'Emission' in bsdf.inputs:
                 bsdf.inputs['Emission'].default_value = (*emission, 1.0)
     return m
 
-MAT_BLACK = material('MartinHoodieBlack', (0.012, 0.014, 0.022), 0.02, 0.48)
-MAT_METAL = material('MartinMicMetal', (0.055, 0.06, 0.075), 0.65, 0.26)
-MAT_GRILL = material('MartinMicGrill', (0.12, 0.125, 0.15), 0.75, 0.20)
-MAT_VIOLET = material('MartinViolet', (0.38, 0.08, 0.85), 0.12, 0.32, (0.25, 0.03, 0.75))
+
+def textured_material(name, image):
+    """Build a fresh modern node material instead of mutating legacy Blender 2.77 materials."""
+    m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new('ShaderNodeOutputMaterial')
+    bsdf = nt.nodes.new('ShaderNodeBsdfPrincipled')
+    tex = nt.nodes.new('ShaderNodeTexImage')
+    tex.image = image
+    tex.interpolation = 'Linear'
+    if hasattr(image, 'colorspace_settings'):
+        image.colorspace_settings.name = 'sRGB'
+    nt.links.new(tex.outputs['Color'], bsdf.inputs['Base Color'])
+    if 'Alpha' in tex.outputs and 'Alpha' in bsdf.inputs:
+        nt.links.new(tex.outputs['Alpha'], bsdf.inputs['Alpha'])
+    if 'Roughness' in bsdf.inputs:
+        bsdf.inputs['Roughness'].default_value = 0.72
+    if 'Metallic' in bsdf.inputs:
+        bsdf.inputs['Metallic'].default_value = 0.0
+    nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+    return m
+
+
+def set_mat(obj, mat):
+    if obj.data and hasattr(obj.data, 'materials'):
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+
+# Critical fix: the CC0 CatPilot file uses legacy materials. Rebinding image nodes did not
+# affect meshes reliably after glTF export, so create and assign a new Principled material.
+martin_image = None
+if TEXTURE and os.path.exists(TEXTURE):
+    martin_image = bpy.data.images.load(TEXTURE, check_existing=False)
+    martin_image.name = 'MartinTexture'
+    martin_texture_mat = textured_material('MartinCatTexture', martin_image)
+    for obj in mesh_objects:
+        set_mat(obj, martin_texture_mat)
+        print('MARTIN_TEXTURE_ASSIGNED', obj.name)
+else:
+    print('MARTIN_TEXTURE_MISSING', TEXTURE)
+
+MAT_BLACK = material('MartinHoodieBlack', (0.010, 0.012, 0.019), 0.01, 0.72)
+MAT_METAL = material('MartinMicMetal', (0.045, 0.050, 0.065), 0.55, 0.34)
+MAT_GRILL = material('MartinMicGrill', (0.095, 0.10, 0.12), 0.68, 0.30)
+MAT_VIOLET = material('MartinViolet', (0.30, 0.045, 0.70), 0.08, 0.40, (0.16, 0.015, 0.48))
+MAT_GREEN = material('MartinEyeGreen', (0.015, 0.25, 0.055), 0.0, 0.30, (0.005, 0.055, 0.012))
+
+# If the source exposes eyes/irises as separate meshes/materials, make them unmistakably green.
+for obj in mesh_objects:
+    tag = original_tags.get(obj.name, '')
+    if 'eye' in tag or 'iris' in tag:
+        set_mat(obj, MAT_GREEN)
+        print('MARTIN_GREEN_EYES', obj.name)
 
 
 def world_bounds(objects):
@@ -115,15 +161,7 @@ vertical_y = size.y >= size.z
 print('MARTIN_UP_AXIS', 'Y' if vertical_y else 'Z')
 
 
-def set_mat(obj, mat):
-    if obj.data and hasattr(obj.data, 'materials'):
-        obj.data.materials.clear()
-        obj.data.materials.append(mat)
-
-
 def prep_mesh_operator():
-    # Mesh primitive operators are safe in background mode once the legacy file is in OBJECT mode
-    # with a valid active object/view layer. This is called before every primitive for robustness.
     try:
         if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -148,17 +186,6 @@ def add_uv_sphere(name, location, scale, mat):
 def add_cylinder(name, location, radius, depth, mat, rotation=(0,0,0)):
     prep_mesh_operator()
     bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=radius, depth=depth, location=location, rotation=rotation)
-    o = bpy.context.object
-    o.name = name
-    set_mat(o, mat)
-    for p in o.data.polygons:
-        p.use_smooth = True
-    return o
-
-
-def add_torus(name, location, major, minor, mat, rotation=(0,0,0)):
-    prep_mesh_operator()
-    bpy.ops.mesh.primitive_torus_add(major_radius=major, minor_radius=minor, major_segments=40, minor_segments=12, location=location, rotation=rotation)
     o = bpy.context.object
     o.name = name
     set_mat(o, mat)
@@ -193,8 +220,8 @@ def attach_to_bone(obj, bone_name, local_location, local_rotation=(0,0,0)):
     obj.rotation_euler = local_rotation
     return True
 
-# Empty is created through the Data API because bpy.ops.object.empty_add() is invalid
-# in the UI context stored in this legacy Blender 2.77 source file when opened headlessly.
+# Hand microphone. The large torus "hood collar" from the first pass is intentionally removed:
+# it crossed the muzzle in several animations and made the character read as a ring, not a hoodie.
 mic_root = bpy.data.objects.new('Martin_Microphone_Root', None)
 bpy.context.scene.collection.objects.link(mic_root)
 if hand_bone:
@@ -209,17 +236,11 @@ for o in (handle, grille):
     o.parent = mic_root
 mic_root.location = (S*0.02, S*0.01, S*0.025)
 
-hood_major = S*0.085
-hood_minor = S*0.026
-hood = add_torus('Martin_Hood_Collar', center, hood_major, hood_minor, MAT_BLACK, (math.radians(90),0,0))
+# Minimal chest mark. Keep geometry clear of the face and let the dark texture define the outfit.
+badge = add_uv_sphere('Martin_Chest_Badge', center, (S*0.030,S*0.009,S*0.030), MAT_VIOLET)
 if chest_bone:
-    attach_to_bone(hood, chest_bone, (0.0, S*0.08, S*0.02), (math.radians(90),0,0))
+    attach_to_bone(badge, chest_bone, (0.0, S*0.115, S*0.082), (0,0,0))
 
-badge = add_uv_sphere('Martin_Chest_Badge', center, (S*0.035,S*0.012,S*0.035), MAT_VIOLET)
-if chest_bone:
-    attach_to_bone(badge, chest_bone, (0.0, S*0.12, S*0.09), (0,0,0))
-
-# Text logo is decorative; a failure here must never block the rigged avatar export.
 try:
     prep_mesh_operator()
     bpy.ops.object.text_add(location=center)
@@ -228,18 +249,18 @@ try:
     txt.data.body = 'M'
     txt.data.align_x = 'CENTER'
     txt.data.align_y = 'CENTER'
-    txt.data.size = S*0.055
-    txt.data.extrude = S*0.0025
-    txt.data.bevel_depth = S*0.001
+    txt.data.size = S*0.047
+    txt.data.extrude = S*0.002
+    txt.data.bevel_depth = S*0.0008
     set_mat(txt, MAT_VIOLET)
     bpy.ops.object.convert(target='MESH')
     if chest_bone:
-        attach_to_bone(txt, chest_bone, (0.0, S*0.125, S*0.103), (math.radians(90),0,0))
+        attach_to_bone(txt, chest_bone, (0.0, S*0.121, S*0.094), (math.radians(90),0,0))
 except Exception as exc:
     print('MARTIN_LOGO_WARN', repr(exc))
 
 arm.name = 'MartinSkeleton'
-accessories = {handle, grille, hood, badge}
+accessories = {handle, grille, badge}
 for i, obj in enumerate([o for o in bpy.data.objects if o.type == 'MESH' and o not in accessories]):
     if not obj.name.startswith('Martin_'):
         obj.name = f'MartinMesh_{i:02d}'
@@ -248,7 +269,6 @@ for act in bpy.data.actions:
     act.use_fake_user = True
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
-# export_selected defaults to false; do not call context-sensitive object.select_all here.
 bpy.ops.export_scene.gltf(
     filepath=OUT,
     export_format='GLB',
