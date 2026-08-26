@@ -1,0 +1,69 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/MartinProduction.gd" id="1_runtime"]
+
+[sub_resource type="Environment" id="Environment_martin"]
+background_mode = 1
+background_color = Color(0.012, 0.014, 0.028, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.24, 0.21, 0.36, 1)
+ambient_light_energy = 0.72
+tonemap_mode = 2
+
+[sub_resource type="StandardMaterial3D" id="FloorMaterial"]
+albedo_color = Color(0.025, 0.027, 0.045, 1)
+metallic = 0.15
+roughness = 0.48
+
+[sub_resource type="PlaneMesh" id="FloorMesh"]
+material = SubResource("FloorMaterial")
+size = Vector2(6, 6)
+
+[sub_resource type="StandardMaterial3D" id="HaloMaterial"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.31, 0.08, 0.75, 0.17)
+
+[sub_resource type="QuadMesh" id="HaloMesh"]
+material = SubResource("HaloMaterial")
+size = Vector2(3.6, 3.6)
+
+[node name="MartinProduction" type="Node3D"]
+script = ExtResource("1_runtime")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_martin")
+
+[node name="ModelMount" type="Node3D" parent="."]
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, 0)
+mesh = SubResource("FloorMesh")
+
+[node name="Halo" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.35, -0.72)
+rotation_degrees = Vector3(0, 0, 0)
+mesh = SubResource("HaloMesh")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-34, -28, 0)
+light_color = Color(0.89, 0.90, 1, 1)
+light_energy = 1.45
+shadow_enabled = true
+
+[node name="FillLight" type="OmniLight3D" parent="."]
+position = Vector3(-1.55, 1.75, 2.1)
+light_color = Color(0.41, 0.24, 1, 1)
+light_energy = 5.5
+omni_range = 4.2
+
+[node name="RimLight" type="OmniLight3D" parent="."]
+position = Vector3(1.5, 2.0, -0.8)
+light_color = Color(0.88, 0.18, 1, 1)
+light_energy = 7.0
+omni_range = 3.8
+
+[node name="Camera3D" type="Camera3D" parent="."]
+position = Vector3(0, 1.38, 4.35)
+fov = 37.0
+current = true
