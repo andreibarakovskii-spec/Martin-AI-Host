@@ -1,7 +1,6 @@
 import bpy
 import math
 import os
-import re
 from mathutils import Vector
 
 OUT = os.environ.get('MARTIN_OUT', '/tmp/martin.glb')
@@ -21,6 +20,18 @@ print('MARTIN_ARMATURE', arm.name, 'bones=', len(arm.data.bones))
 print('MARTIN_BONES', ','.join(b.name for b in arm.data.bones))
 print('MARTIN_ACTIONS', ','.join(a.name for a in bpy.data.actions))
 
+# Old Blender files can open with a stale mode/active object. Normalize the context once,
+# then avoid context-sensitive bpy.ops for non-mesh helpers.
+try:
+    if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+except Exception as exc:
+    print('MARTIN_MODE_NORMALIZE_WARN', repr(exc))
+for obj in bpy.context.selected_objects:
+    obj.select_set(False)
+arm.select_set(True)
+bpy.context.view_layer.objects.active = arm
+
 # Remove scene-only helpers and obvious pilot accessories when they are separate objects.
 remove_tokens = ('camera', 'light', 'plane', 'propeller', 'goggle', 'glass', 'hook', 'bag', 'satchel')
 for obj in list(bpy.data.objects):
@@ -30,7 +41,11 @@ for obj in list(bpy.data.objects):
     if obj.type in {'CAMERA', 'LIGHT'} or any(t in low for t in remove_tokens):
         bpy.data.objects.remove(obj, do_unlink=True)
 
-# Replace texture references with the generated Martin texture while preserving the original UVs.
+# Re-establish a valid active object after deleting helpers from the legacy source file.
+arm.select_set(True)
+bpy.context.view_layer.objects.active = arm
+
+# Replace texture references with the generated Martin texture while preserving source UVs.
 martin_image = None
 if TEXTURE and os.path.exists(TEXTURE):
     martin_image = bpy.data.images.load(TEXTURE, check_existing=False)
@@ -43,26 +58,31 @@ if TEXTURE and os.path.exists(TEXTURE):
                 node.image = martin_image
                 print('MARTIN_TEXTURE_REBOUND', mat.name, node.name)
 
-# Make sure meshes render smoothly and keep morph targets/skin.
 mesh_objects = [o for o in bpy.data.objects if o.type == 'MESH']
+if not mesh_objects:
+    raise RuntimeError('No cat mesh found in CatPilot source')
 for obj in mesh_objects:
     for poly in obj.data.polygons:
         poly.use_smooth = True
 
-# Utilities for Martin-specific accessories.
+
 def material(name, color, metallic=0.0, roughness=0.6, emission=None):
     m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
     m.diffuse_color = (*color, 1.0)
     m.use_nodes = True
     bsdf = m.node_tree.nodes.get('Principled BSDF')
     if bsdf:
-        bsdf.inputs['Base Color'].default_value = (*color, 1.0)
-        bsdf.inputs['Metallic'].default_value = metallic
-        bsdf.inputs['Roughness'].default_value = roughness
+        if 'Base Color' in bsdf.inputs:
+            bsdf.inputs['Base Color'].default_value = (*color, 1.0)
+        if 'Metallic' in bsdf.inputs:
+            bsdf.inputs['Metallic'].default_value = metallic
+        if 'Roughness' in bsdf.inputs:
+            bsdf.inputs['Roughness'].default_value = roughness
         if emission is not None:
             if 'Emission Color' in bsdf.inputs:
                 bsdf.inputs['Emission Color'].default_value = (*emission, 1.0)
-                bsdf.inputs['Emission Strength'].default_value = 1.8
+                if 'Emission Strength' in bsdf.inputs:
+                    bsdf.inputs['Emission Strength'].default_value = 1.8
             elif 'Emission' in bsdf.inputs:
                 bsdf.inputs['Emission'].default_value = (*emission, 1.0)
     return m
@@ -72,7 +92,7 @@ MAT_METAL = material('MartinMicMetal', (0.055, 0.06, 0.075), 0.65, 0.26)
 MAT_GRILL = material('MartinMicGrill', (0.12, 0.125, 0.15), 0.75, 0.20)
 MAT_VIOLET = material('MartinViolet', (0.38, 0.08, 0.85), 0.12, 0.32, (0.25, 0.03, 0.75))
 
-# Compute source bounds to size accessories relative to the rigged cat.
+
 def world_bounds(objects):
     pts = []
     for obj in objects:
@@ -91,45 +111,62 @@ size = hi - lo
 center = (hi + lo) * 0.5
 height = max(size.z, size.y, 0.001)
 print('MARTIN_BOUNDS', tuple(round(v,4) for v in lo), tuple(round(v,4) for v in hi), 'size=', tuple(round(v,4) for v in size))
-
-# Blender source orientation varies; detect vertical axis from the largest of Y/Z and use world-space placement.
 vertical_y = size.y >= size.z
-up_axis = 'Y' if vertical_y else 'Z'
-print('MARTIN_UP_AXIS', up_axis)
+print('MARTIN_UP_AXIS', 'Y' if vertical_y else 'Z')
 
-# Helper that adds a primitive and assigns material.
+
 def set_mat(obj, mat):
     if obj.data and hasattr(obj.data, 'materials'):
         obj.data.materials.clear()
         obj.data.materials.append(mat)
 
+
+def prep_mesh_operator():
+    # Mesh primitive operators are safe in background mode once the legacy file is in OBJECT mode
+    # with a valid active object/view layer. This is called before every primitive for robustness.
+    try:
+        if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+    except Exception:
+        pass
+    if arm.name in bpy.context.view_layer.objects:
+        bpy.context.view_layer.objects.active = arm
+
+
 def add_uv_sphere(name, location, scale, mat):
+    prep_mesh_operator()
     bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, location=location)
     o = bpy.context.object
     o.name = name
     o.scale = scale
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     set_mat(o, mat)
-    for p in o.data.polygons: p.use_smooth = True
+    for p in o.data.polygons:
+        p.use_smooth = True
     return o
 
+
 def add_cylinder(name, location, radius, depth, mat, rotation=(0,0,0)):
+    prep_mesh_operator()
     bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=radius, depth=depth, location=location, rotation=rotation)
     o = bpy.context.object
     o.name = name
     set_mat(o, mat)
-    for p in o.data.polygons: p.use_smooth = True
+    for p in o.data.polygons:
+        p.use_smooth = True
     return o
 
+
 def add_torus(name, location, major, minor, mat, rotation=(0,0,0)):
+    prep_mesh_operator()
     bpy.ops.mesh.primitive_torus_add(major_radius=major, minor_radius=minor, major_segments=40, minor_segments=12, location=location, rotation=rotation)
     o = bpy.context.object
     o.name = name
     set_mat(o, mat)
-    for p in o.data.polygons: p.use_smooth = True
+    for p in o.data.polygons:
+        p.use_smooth = True
     return o
 
-# Find useful bones by semantic names. The source already has a full rig, so accessories follow it.
+
 def find_bone(tokens):
     candidates = []
     for bone in arm.data.bones:
@@ -145,6 +182,7 @@ chest_bone = find_bone(('chest','spine2','spine_2','spine1','spine','torso'))
 head_bone = find_bone(('head','neck'))
 print('MARTIN_ATTACH_BONES', 'hand=', hand_bone, 'chest=', chest_bone, 'head=', head_bone)
 
+
 def attach_to_bone(obj, bone_name, local_location, local_rotation=(0,0,0)):
     if not bone_name:
         return False
@@ -155,39 +193,35 @@ def attach_to_bone(obj, bone_name, local_location, local_rotation=(0,0,0)):
     obj.rotation_euler = local_rotation
     return True
 
-# Microphone: handle + grille, grouped under an Empty attached to a hand bone.
-bpy.ops.object.empty_add(type='PLAIN_AXES')
-mic_root = bpy.context.object
-mic_root.name = 'Martin_Microphone_Root'
+# Empty is created through the Data API because bpy.ops.object.empty_add() is invalid
+# in the UI context stored in this legacy Blender 2.77 source file when opened headlessly.
+mic_root = bpy.data.objects.new('Martin_Microphone_Root', None)
+bpy.context.scene.collection.objects.link(mic_root)
 if hand_bone:
     attach_to_bone(mic_root, hand_bone, (0.0, 0.0, 0.0), (math.radians(8), math.radians(4), math.radians(-18)))
 else:
     mic_root.location = center
 
-# Accessory scale uses model height and is intentionally conservative.
 S = max(height, 1.0)
 handle = add_cylinder('Martin_Microphone_Handle', (0,0,0), S*0.018, S*0.22, MAT_METAL, (math.radians(90),0,0))
 grille = add_uv_sphere('Martin_Microphone_Grille', (0, S*0.13, 0), (S*0.037,S*0.047,S*0.037), MAT_GRILL)
 for o in (handle, grille):
     o.parent = mic_root
-# Shift microphone slightly into the paw.
 mic_root.location = (S*0.02, S*0.01, S*0.025)
 
-# Hoodie hood/collar: subtle black torus around neck; attached to chest/root when possible.
 hood_major = S*0.085
 hood_minor = S*0.026
-hood_loc = (center.x, center.y, center.z)
-hood = add_torus('Martin_Hood_Collar', hood_loc, hood_major, hood_minor, MAT_BLACK, (math.radians(90),0,0))
+hood = add_torus('Martin_Hood_Collar', center, hood_major, hood_minor, MAT_BLACK, (math.radians(90),0,0))
 if chest_bone:
     attach_to_bone(hood, chest_bone, (0.0, S*0.08, S*0.02), (math.radians(90),0,0))
 
-# Small violet chest badge to preserve the concept's purple identity.
 badge = add_uv_sphere('Martin_Chest_Badge', center, (S*0.035,S*0.012,S*0.035), MAT_VIOLET)
 if chest_bone:
     attach_to_bone(badge, chest_bone, (0.0, S*0.12, S*0.09), (0,0,0))
 
-# Convert a text M to mesh and attach as an emblem where possible.
+# Text logo is decorative; a failure here must never block the rigged avatar export.
 try:
+    prep_mesh_operator()
     bpy.ops.object.text_add(location=center)
     txt = bpy.context.object
     txt.name = 'Martin_M_Logo'
@@ -204,19 +238,17 @@ try:
 except Exception as exc:
     print('MARTIN_LOGO_WARN', repr(exc))
 
-# Rename the main armature and model objects for predictable Godot discovery.
 arm.name = 'MartinSkeleton'
-for i, obj in enumerate([o for o in bpy.data.objects if o.type == 'MESH' and o not in {handle, grille, hood, badge}]):
+accessories = {handle, grille, hood, badge}
+for i, obj in enumerate([o for o in bpy.data.objects if o.type == 'MESH' and o not in accessories]):
     if not obj.name.startswith('Martin_'):
         obj.name = f'MartinMesh_{i:02d}'
 
-# Ensure all actions survive glTF export even if not currently active.
 for act in bpy.data.actions:
     act.use_fake_user = True
 
-# Export glTF binary with skinning, morphs and animations.
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
-bpy.ops.object.select_all(action='SELECT')
+# export_selected defaults to false; do not call context-sensitive object.select_all here.
 bpy.ops.export_scene.gltf(
     filepath=OUT,
     export_format='GLB',
