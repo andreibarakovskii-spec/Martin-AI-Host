@@ -1,4 +1,5 @@
 import bpy
+import bmesh
 import math
 import os
 from mathutils import Vector
@@ -20,7 +21,6 @@ print('MARTIN_ARMATURE', arm.name, 'bones=', len(arm.data.bones))
 print('MARTIN_BONES', ','.join(b.name for b in arm.data.bones))
 print('MARTIN_ACTIONS', ','.join(a.name for a in bpy.data.actions))
 
-# Normalize the old Blender scene before any edits.
 try:
     if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -31,7 +31,6 @@ for obj in bpy.context.selected_objects:
 arm.select_set(True)
 bpy.context.view_layer.objects.active = arm
 
-# Remove scene-only helpers and obvious pilot accessories when they are separate objects.
 remove_tokens = (
     'camera', 'light', 'plane', 'propeller', 'goggle', 'glass',
     'hook', 'bag', 'satchel', 'pilot_hat', 'helmet', 'aviator'
@@ -46,19 +45,49 @@ for obj in list(bpy.data.objects):
 
 arm.select_set(True)
 bpy.context.view_layer.objects.active = arm
-
 mesh_objects = [o for o in bpy.data.objects if o.type == 'MESH']
 if not mesh_objects:
     raise RuntimeError('No cat mesh found in CatPilot source')
 
-# Keep a snapshot of original names/materials before replacing the legacy Blender 2.77 materials.
 original_tags = {}
 for obj in mesh_objects:
     mats = [slot.material.name for slot in obj.material_slots if slot.material is not None]
     original_tags[obj.name] = (obj.name + ' ' + ' '.join(mats)).lower()
     print('MARTIN_SOURCE_MESH', obj.name, 'materials=', ','.join(mats))
+    print('MARTIN_VERTEX_GROUPS', obj.name, ','.join(vg.name for vg in obj.vertex_groups))
     for poly in obj.data.polygons:
         poly.use_smooth = True
+
+
+def delete_weighted_part(obj, group_names, min_weight):
+    group_ids = {vg.index: vg.name for vg in obj.vertex_groups if vg.name in group_names}
+    if not group_ids:
+        print('MARTIN_PART_GROUPS_MISSING', obj.name, ','.join(group_names))
+        return 0
+    indices = set()
+    for vert in obj.data.vertices:
+        for membership in vert.groups:
+            if membership.group in group_ids and membership.weight >= min_weight:
+                indices.add(vert.index)
+                break
+    if not indices:
+        print('MARTIN_PART_EMPTY', obj.name, ','.join(group_names))
+        return 0
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    doomed = [bm.verts[i] for i in sorted(indices) if i < len(bm.verts)]
+    bmesh.ops.delete(bm, geom=doomed, context='VERTS')
+    bm.to_mesh(obj.data)
+    obj.data.update()
+    bm.free()
+    print('MARTIN_PART_REMOVED', obj.name, ','.join(group_names), 'vertices=', len(indices))
+    return len(indices)
+
+# The CC0 source is one skinned mesh. Remove pilot-only geometry through its authored bone groups.
+for obj in mesh_objects:
+    delete_weighted_part(obj, ('Goggles', 'HatFlap.L', 'HatFlap.R'), 0.42)
+    delete_weighted_part(obj, ('Scarf1', 'Scarf2'), 0.58)
 
 
 def material(name, color, metallic=0.0, roughness=0.6, emission=None):
@@ -77,14 +106,13 @@ def material(name, color, metallic=0.0, roughness=0.6, emission=None):
             if 'Emission Color' in bsdf.inputs:
                 bsdf.inputs['Emission Color'].default_value = (*emission, 1.0)
                 if 'Emission Strength' in bsdf.inputs:
-                    bsdf.inputs['Emission Strength'].default_value = 1.25
+                    bsdf.inputs['Emission Strength'].default_value = 1.15
             elif 'Emission' in bsdf.inputs:
                 bsdf.inputs['Emission'].default_value = (*emission, 1.0)
     return m
 
 
 def textured_material(name, image):
-    """Build a fresh modern node material instead of mutating legacy Blender 2.77 materials."""
     m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
     m.use_nodes = True
     nt = m.node_tree
@@ -100,7 +128,7 @@ def textured_material(name, image):
     if 'Alpha' in tex.outputs and 'Alpha' in bsdf.inputs:
         nt.links.new(tex.outputs['Alpha'], bsdf.inputs['Alpha'])
     if 'Roughness' in bsdf.inputs:
-        bsdf.inputs['Roughness'].default_value = 0.72
+        bsdf.inputs['Roughness'].default_value = 0.78
     if 'Metallic' in bsdf.inputs:
         bsdf.inputs['Metallic'].default_value = 0.0
     nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
@@ -112,8 +140,6 @@ def set_mat(obj, mat):
         obj.data.materials.clear()
         obj.data.materials.append(mat)
 
-# Critical fix: the CC0 CatPilot file uses legacy materials. Rebinding image nodes did not
-# affect meshes reliably after glTF export, so create and assign a new Principled material.
 martin_image = None
 if TEXTURE and os.path.exists(TEXTURE):
     martin_image = bpy.data.images.load(TEXTURE, check_existing=False)
@@ -125,18 +151,8 @@ if TEXTURE and os.path.exists(TEXTURE):
 else:
     print('MARTIN_TEXTURE_MISSING', TEXTURE)
 
-MAT_BLACK = material('MartinHoodieBlack', (0.010, 0.012, 0.019), 0.01, 0.72)
-MAT_METAL = material('MartinMicMetal', (0.045, 0.050, 0.065), 0.55, 0.34)
-MAT_GRILL = material('MartinMicGrill', (0.095, 0.10, 0.12), 0.68, 0.30)
-MAT_VIOLET = material('MartinViolet', (0.30, 0.045, 0.70), 0.08, 0.40, (0.16, 0.015, 0.48))
-MAT_GREEN = material('MartinEyeGreen', (0.015, 0.25, 0.055), 0.0, 0.30, (0.005, 0.055, 0.012))
-
-# If the source exposes eyes/irises as separate meshes/materials, make them unmistakably green.
-for obj in mesh_objects:
-    tag = original_tags.get(obj.name, '')
-    if 'eye' in tag or 'iris' in tag:
-        set_mat(obj, MAT_GREEN)
-        print('MARTIN_GREEN_EYES', obj.name)
+MAT_METAL = material('MartinMicMetal', (0.045, 0.050, 0.065), 0.55, 0.38)
+MAT_GRILL = material('MartinMicGrill', (0.085, 0.095, 0.11), 0.68, 0.34)
 
 
 def world_bounds(objects):
@@ -157,8 +173,6 @@ size = hi - lo
 center = (hi + lo) * 0.5
 height = max(size.z, size.y, 0.001)
 print('MARTIN_BOUNDS', tuple(round(v,4) for v in lo), tuple(round(v,4) for v in hi), 'size=', tuple(round(v,4) for v in size))
-vertical_y = size.y >= size.z
-print('MARTIN_UP_AXIS', 'Y' if vertical_y else 'Z')
 
 
 def prep_mesh_operator():
@@ -171,9 +185,9 @@ def prep_mesh_operator():
         bpy.context.view_layer.objects.active = arm
 
 
-def add_uv_sphere(name, location, scale, mat):
+def add_uv_sphere(name, scale, mat):
     prep_mesh_operator()
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, location=location)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=12, location=(0,0,0))
     o = bpy.context.object
     o.name = name
     o.scale = scale
@@ -183,9 +197,9 @@ def add_uv_sphere(name, location, scale, mat):
     return o
 
 
-def add_cylinder(name, location, radius, depth, mat, rotation=(0,0,0)):
+def add_cylinder(name, radius, depth, mat, rotation=(0,0,0)):
     prep_mesh_operator()
-    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=radius, depth=depth, location=location, rotation=rotation)
+    bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=radius, depth=depth, location=(0,0,0), rotation=rotation)
     o = bpy.context.object
     o.name = name
     set_mat(o, mat)
@@ -205,12 +219,10 @@ def find_bone(tokens):
     return candidates[0][1] if candidates else None
 
 hand_bone = find_bone(('hand_l','handleft','left_hand','wrist_l','paw_l','l_hand','hand'))
-chest_bone = find_bone(('chest','spine2','spine_2','spine1','spine','torso'))
-head_bone = find_bone(('head','neck'))
-print('MARTIN_ATTACH_BONES', 'hand=', hand_bone, 'chest=', chest_bone, 'head=', head_bone)
+print('MARTIN_ATTACH_BONES', 'hand=', hand_bone)
 
 
-def attach_to_bone(obj, bone_name, local_location, local_rotation=(0,0,0)):
+def attach_to_bone(obj, bone_name, local_location=(0,0,0), local_rotation=(0,0,0)):
     if not bone_name:
         return False
     obj.parent = arm
@@ -220,47 +232,27 @@ def attach_to_bone(obj, bone_name, local_location, local_rotation=(0,0,0)):
     obj.rotation_euler = local_rotation
     return True
 
-# Hand microphone. The large torus "hood collar" from the first pass is intentionally removed:
-# it crossed the muzzle in several animations and made the character read as a ring, not a hoodie.
+# Compact handheld microphone. Children receive explicit local transforms after parenting so
+# the legacy armature transform cannot turn the handle into a floor-length rod.
+S = max(height, 1.0)
 mic_root = bpy.data.objects.new('Martin_Microphone_Root', None)
 bpy.context.scene.collection.objects.link(mic_root)
 if hand_bone:
-    attach_to_bone(mic_root, hand_bone, (0.0, 0.0, 0.0), (math.radians(8), math.radians(4), math.radians(-18)))
+    attach_to_bone(mic_root, hand_bone, (0.0, 0.015*S, 0.0), (math.radians(8), 0, math.radians(-12)))
 else:
     mic_root.location = center
 
-S = max(height, 1.0)
-handle = add_cylinder('Martin_Microphone_Handle', (0,0,0), S*0.018, S*0.22, MAT_METAL, (math.radians(90),0,0))
-grille = add_uv_sphere('Martin_Microphone_Grille', (0, S*0.13, 0), (S*0.037,S*0.047,S*0.037), MAT_GRILL)
-for o in (handle, grille):
-    o.parent = mic_root
-mic_root.location = (S*0.02, S*0.01, S*0.025)
-
-# Minimal chest mark. Keep geometry clear of the face and let the dark texture define the outfit.
-badge = add_uv_sphere('Martin_Chest_Badge', center, (S*0.030,S*0.009,S*0.030), MAT_VIOLET)
-if chest_bone:
-    attach_to_bone(badge, chest_bone, (0.0, S*0.115, S*0.082), (0,0,0))
-
-try:
-    prep_mesh_operator()
-    bpy.ops.object.text_add(location=center)
-    txt = bpy.context.object
-    txt.name = 'Martin_M_Logo'
-    txt.data.body = 'M'
-    txt.data.align_x = 'CENTER'
-    txt.data.align_y = 'CENTER'
-    txt.data.size = S*0.047
-    txt.data.extrude = S*0.002
-    txt.data.bevel_depth = S*0.0008
-    set_mat(txt, MAT_VIOLET)
-    bpy.ops.object.convert(target='MESH')
-    if chest_bone:
-        attach_to_bone(txt, chest_bone, (0.0, S*0.121, S*0.094), (math.radians(90),0,0))
-except Exception as exc:
-    print('MARTIN_LOGO_WARN', repr(exc))
+handle = add_cylinder('Martin_Microphone_Handle', S*0.010, S*0.095, MAT_METAL, (math.radians(90),0,0))
+handle.parent = mic_root
+handle.location = (0.0, 0.0, 0.0)
+handle.rotation_euler = (math.radians(90),0,0)
+grille = add_uv_sphere('Martin_Microphone_Grille', (S*0.025,S*0.032,S*0.025), MAT_GRILL)
+grille.parent = mic_root
+grille.location = (0.0, S*0.052, 0.0)
+grille.rotation_euler = (0,0,0)
 
 arm.name = 'MartinSkeleton'
-accessories = {handle, grille, badge}
+accessories = {handle, grille}
 for i, obj in enumerate([o for o in bpy.data.objects if o.type == 'MESH' and o not in accessories]):
     if not obj.name.startswith('Martin_'):
         obj.name = f'MartinMesh_{i:02d}'
