@@ -18,16 +18,24 @@ public final class GroqTranscriber {
     public GroqTranscriber(Context context) { this.context = context.getApplicationContext(); }
 
     public void transcribe(byte[] wav, Callback callback) {
-        if (wav == null || wav.length <= 44) return;
+        if (wav == null || wav.length <= 44) {
+            callback.onError("Пустой аудиофрагмент");
+            return;
+        }
         executor.execute(() -> {
+            HttpURLConnection c = null;
             try {
                 var prefs = context.getSharedPreferences("martin", 0);
-                String key = prefs.getString("ai_key", prefs.getString("xai_key", ""));
+                String aiKey = prefs.getString("ai_key", prefs.getString("xai_key", ""));
+                String key = prefs.getString("stt_key", "");
+                // Backward compatibility: one Groq key can serve both AI and Whisper.
+                if ((key == null || key.isBlank()) && aiKey != null && aiKey.startsWith("gsk_")) key = aiKey;
                 if (key == null || key.isBlank() || !key.startsWith("gsk_"))
-                    throw new IllegalStateException("Для распознавания укажите Groq gsk_ ключ");
+                    throw new IllegalStateException("Для распознавания речи укажите Groq STT key gsk_… в настройках");
+
                 String model = prefs.getString("stt_model", "whisper-large-v3-turbo");
                 String boundary = "----MartinBoundary" + System.nanoTime();
-                HttpURLConnection c = (HttpURLConnection)new URL("https://api.groq.com/openai/v1/audio/transcriptions").openConnection();
+                c = (HttpURLConnection)new URL("https://api.groq.com/openai/v1/audio/transcriptions").openConnection();
                 c.setRequestMethod("POST");
                 c.setDoOutput(true);
                 c.setConnectTimeout(12000);
@@ -46,9 +54,12 @@ public final class GroqTranscriber {
                 String raw = is == null ? "" : new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 if (code < 200 || code >= 300) throw new IllegalStateException("Whisper API " + code + ": " + raw);
                 String text = new JSONObject(raw).optString("text", "").trim();
-                if (!text.isBlank()) callback.onText(text);
+                if (text.isBlank()) callback.onError("Речь не распознана");
+                else callback.onText(text);
             } catch (Exception e) {
                 callback.onError(e.getMessage() == null ? e.toString() : e.getMessage());
+            } finally {
+                if (c != null) c.disconnect();
             }
         });
     }
