@@ -24,22 +24,24 @@ const VISEME_ALIASES := {
 }
 
 const EXPRESSION_ALIASES := {
-    "blink_l": ["eyeBlinkLeft", "eyesClosed", "blinkLeft"],
-    "blink_r": ["eyeBlinkRight", "eyesClosed", "blinkRight"],
+    "blink_l": ["eyeBlinkLeft", "eyesClosed", "blinkLeft", "EyesClosed", "Blink"],
+    "blink_r": ["eyeBlinkRight", "eyesClosed", "blinkRight", "EyesClosed", "Blink"],
     "smile": ["mouthSmile", "mouthSmileLeft", "mouthSmileRight"],
     "brow_up": ["browInnerUp", "browOuterUpLeft", "browOuterUpRight"],
 }
 
+## These aliases include the exact action names verified in the CC0 Cat Pilot source.
+## Default/DefaultAnim are used as the neutral loop; Cheer is the expressive party motion.
 const ANIMATION_ALIASES := {
-    "idle": ["idle", "Idle", "standing", "Standing"],
-    "listening": ["listening", "listen", "Idle", "idle"],
-    "thinking": ["thinking", "think", "Idle", "idle"],
-    "talking": ["talking", "talk", "cheering", "Cheering", "Idle", "idle"],
-    "happy": ["happy", "cheering", "Cheering", "celebrate", "Idle", "idle"],
-    "game": ["game", "cheering", "Cheering", "Idle", "idle"],
-    "toast": ["toast", "cheering", "Cheering", "Idle", "idle"],
-    "dj": ["dj", "dance", "Dance", "cheering", "Cheering", "Idle", "idle"],
-    "dance": ["dance", "Dance", "cheering", "Cheering", "Idle", "idle"],
+    "idle": ["idle", "Idle", "standing", "Standing", "Default", "DefaultAnim"],
+    "listening": ["listening", "listen", "Idle", "idle", "Default", "DefaultAnim"],
+    "thinking": ["thinking", "think", "Idle", "idle", "Default", "DefaultAnim"],
+    "talking": ["talking", "talk", "cheering", "Cheering", "Default", "DefaultAnim"],
+    "happy": ["happy", "cheering", "Cheering", "Cheer", "celebrate", "Default"],
+    "game": ["game", "Cheer", "cheering", "Cheering", "Default"],
+    "toast": ["toast", "Cheer", "cheering", "Cheering", "Default"],
+    "dj": ["dj", "dance", "Dance", "Cheer", "cheering", "Cheering", "Default"],
+    "dance": ["dance", "Dance", "Cheer", "cheering", "Cheering", "Default"],
     "walk": ["walk", "walking", "Walking", "Walk"],
     "run": ["run", "running", "Running", "Run"],
 }
