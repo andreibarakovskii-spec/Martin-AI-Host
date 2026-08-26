@@ -12,33 +12,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify and patch 3D NPC source tree
+      - name: Verify 1to1 Martin renderer
         run: |
           set -euxo pipefail
           test -s app/src/main/java/com/imagine/martinhost/Martin3DView.java
-          grep -q 'extends GLSurfaceView' app/src/main/java/com/imagine/martinhost/Martin3DView.java
+          grep -q 'extends View' app/src/main/java/com/imagine/martinhost/Martin3DView.java
+          grep -q 'martin_portrait_valid.b64' app/src/main/java/com/imagine/martinhost/Martin3DView.java
+          grep -q 'FIT_CENTER is intentional' app/src/main/java/com/imagine/martinhost/Martin3DView.java
+          ! grep -q 'GLES20' app/src/main/java/com/imagine/martinhost/Martin3DView.java
+          ! grep -q 'GLSurfaceView' app/src/main/java/com/imagine/martinhost/Martin3DView.java
           grep -q 'Martin3DView martin' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
           grep -q 'new Martin3DView' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
           ! grep -q 'new MartinSpriteView' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
           grep -q 'PremiumMainActivity' app/src/main/AndroidManifest.xml
           grep -q 'android.intent.category.LAUNCHER' app/src/main/AndroidManifest.xml
-          grep -q 'versionName = "0.5.0-3d-npc"' app/build.gradle.kts
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('app/src/main/java/com/imagine/martinhost/Martin3DView.java')
-          s=p.read_text()
-          bad='@Override public void onSurfaceCreated(javax.microedition.khronos.egl.EGLConfig config)'
-          good='@Override public void onSurfaceCreated(javax.microedition.khronos.opengles.GL10 gl, javax.microedition.khronos.egl.EGLConfig config)'
-          if bad in s:
-              s=s.replace(bad,good)
-              p.write_text(s)
-          assert good in p.read_text()
-          PY
-          if test -s app/src/main/assets/martin_portrait_valid.b64; then
-            mkdir -p app/src/main/res/drawable-nodpi
-            base64 -d app/src/main/assets/martin_portrait_valid.b64 > app/src/main/res/drawable-nodpi/martin_idle.jpg
-            file app/src/main/res/drawable-nodpi/martin_idle.jpg | grep 'JPEG image data'
-          fi
+          grep -q 'versionName = "0.6.0-concept-1to1"' app/build.gradle.kts
+          test -s app/src/main/assets/martin_portrait_valid.b64
+          mkdir -p app/src/main/res/drawable-nodpi
+          base64 -d app/src/main/assets/martin_portrait_valid.b64 > app/src/main/res/drawable-nodpi/martin_idle.jpg
+          file app/src/main/res/drawable-nodpi/martin_idle.jpg | grep 'JPEG image data'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
@@ -52,11 +44,13 @@ jobs:
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
           unzip -t "$APK" >/dev/null
+          unzip -l "$APK" | grep -q 'assets/martin_portrait_valid.b64'
+          unzip -l "$APK" | grep -q 'res/drawable-nodpi-v4/martin_idle.jpg'
           strings "$APK" | grep -q 'Martin3DView'
           strings "$APK" | grep -q 'PremiumMainActivity'
-          echo "3D NPC APK built from $GITHUB_SHA"
+          echo "Martin 1:1 concept APK built from $GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         with:
-          name: Martin-AI-Host-v0.5.0-3d-npc
+          name: Martin-AI-Host-v0.6.0-concept-1to1
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
