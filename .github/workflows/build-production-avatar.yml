@@ -1,0 +1,115 @@
+name: Build production Martin GLB
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ godot-avatar-v1 ]
+    paths:
+      - 'godot-avatar/tools/build_martin_blender.py'
+      - 'godot-avatar/THIRD_PARTY_ASSETS.md'
+      - '.github/workflows/build-production-avatar.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-model:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Blender
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq blender python3-pil
+          blender --version | head -n 2
+
+      - name: Download verified CC0 rig base
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/martin-source
+          curl -fL 'https://opengameart.org/sites/default/files/CatPilot.blend' -o /tmp/martin-source/CatPilot.blend
+          curl -fL 'https://opengameart.org/sites/default/files/catPilotTex.png' -o /tmp/martin-source/catPilotTex.png
+          test -s /tmp/martin-source/CatPilot.blend
+          test -s /tmp/martin-source/catPilotTex.png
+          file /tmp/martin-source/CatPilot.blend
+          file /tmp/martin-source/catPilotTex.png | grep PNG
+
+      - name: Rework diffuse texture to Martin palette
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from PIL import Image, ImageEnhance
+          import colorsys
+          src='/tmp/martin-source/catPilotTex.png'
+          out='/tmp/martin-source/martinTex.png'
+          im=Image.open(src).convert('RGBA')
+          px=im.load()
+          for y in range(im.height):
+              for x in range(im.width):
+                  r,g,b,a=px[x,y]
+                  if a == 0:
+                      continue
+                  rf,gf,bf=r/255,g/255,b/255
+                  h,s,v=colorsys.rgb_to_hsv(rf,gf,bf)
+                  # Keep neutral grey fur, whites and soft pink facial details.
+                  is_neutral=s < 0.18
+                  is_pink=(r > g*1.25 and r > b*1.10 and v > .45 and s < .65)
+                  if not is_neutral and not is_pink:
+                      # Pilot clothing/accessories -> black hoodie/charcoal with preserved shading.
+                      lum=0.2126*rf+0.7152*gf+0.0722*bf
+                      base=12 + int(lum*34)
+                      violet = 8 if (h > .63 and h < .88) else 0
+                      px[x,y]=(base+violet, base, min(58,base+10+violet), a)
+                  elif is_neutral:
+                      # Cooler silver-grey fur, retain source detail.
+                      lum=0.2126*rf+0.7152*gf+0.0722*bf
+                      if lum < .22:
+                          q=int(lum*255)
+                          px[x,y]=(q,q,min(255,q+8),a)
+                      else:
+                          q=max(0,min(255,int(52 + lum*165)))
+                          px[x,y]=(max(0,q-6),q,min(255,q+8),a)
+          im=ImageEnhance.Contrast(im).enhance(1.08)
+          im.save(out,optimize=True)
+          print('MARTIN_TEXTURE_OK', im.size, out)
+          PY
+          file /tmp/martin-source/martinTex.png | grep PNG
+
+      - name: Build rigged Martin GLB
+        env:
+          MARTIN_OUT: ${{ github.workspace }}/godot-avatar/models/production/martin.glb
+          MARTIN_TEXTURE: /tmp/martin-source/martinTex.png
+        run: |
+          set -euxo pipefail
+          blender -b /tmp/martin-source/CatPilot.blend --python godot-avatar/tools/build_martin_blender.py 2>&1 | tee martin-blender.log
+          grep -q 'MARTIN_GLB_OK' martin-blender.log
+          test -s godot-avatar/models/production/martin.glb
+          file godot-avatar/models/production/martin.glb
+          ls -lh godot-avatar/models/production/martin.glb
+
+      - name: Commit generated production model
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add godot-avatar/models/production/martin.glb
+          if git diff --cached --quiet; then
+            echo 'No model change to commit'
+          else
+            git commit -m 'Add generated rigged Martin production GLB [skip model-build]'
+            git push origin HEAD:godot-avatar-v1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: martin-production-glb
+          path: |
+            godot-avatar/models/production/martin.glb
+            martin-blender.log
+          if-no-files-found: error
