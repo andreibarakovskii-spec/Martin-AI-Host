@@ -1,1 +1,1 @@
-Trigger Android build check 2026-08-24
+Trigger Godot production render 2026-08-26 material-pass-2
