@@ -1,0 +1,46 @@
+name: Martin CC0 Base Preview
+
+on:
+  push:
+    branches: [godot-avatar-v1]
+    paths:
+      - 'godot-avatar/tools/render_cc0_cat_candidate.py'
+      - '.github/workflows/martin-cc0-base.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Blender
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender
+          blender --version
+
+      - name: Download CC0 humanoid cat base
+        run: |
+          curl -L --fail --retry 3 \
+            'https://opengameart.org/sites/default/files/cat.blend' \
+            -o /tmp/cat.blend
+          test -s /tmp/cat.blend
+          ls -lh /tmp/cat.blend
+
+      - name: Render candidate
+        run: |
+          mkdir -p martin-cc0-preview
+          blender -b /tmp/cat.blend \
+            -P godot-avatar/tools/render_cc0_cat_candidate.py \
+            -- --output "$GITHUB_WORKSPACE/martin-cc0-preview/martin_cc0_candidate.png"
+
+      - name: Upload candidate render
+        uses: actions/upload-artifact@v4
+        with:
+          name: Martin-CC0-base-preview
+          path: martin-cc0-preview/martin_cc0_candidate.png
+          if-no-files-found: error
