@@ -9,12 +9,6 @@ const FUR_SHADER := preload("res://shaders/martin_fur_shell.gdshader")
 @export_range(0.0, 1.0, 0.01) var base_alpha := 0.24
 @export var fur_color := Color(0.22, 0.24, 0.29, 1.0)
 
-const EXCLUDED_TOKENS := [
-    "eye", "cornea", "pupil", "iris", "goggle", "glass", "lens", "teeth", "tooth",
-    "tongue", "mouth", "nose", "collar", "belt", "buckle", "metal", "button", "cloth",
-    "pilot", "jacket", "vest", "strap", "badge", "emblem", "shoe", "boot"
-]
-
 var shell_nodes: Array[MeshInstance3D] = []
 
 func _ready() -> void:
@@ -49,8 +43,8 @@ func _build_shells(root: Node) -> void:
             material.set_shader_parameter("shell_offset", max_fur_length * ratio)
             material.set_shader_parameter("shell_alpha", base_alpha * (1.0 - ratio * 0.28))
             material.set_shader_parameter("shell_ratio", ratio)
-            material.set_shader_parameter("strand_density", 54.0 - ratio * 7.0)
-            material.set_shader_parameter("scruffiness", 0.22 + ratio * 0.13)
+            material.set_shader_parameter("strand_density", 58.0 - ratio * 8.0)
+            material.set_shader_parameter("scruffiness", 0.16 + ratio * 0.10)
             shell.material_override = material
             source.get_parent().add_child(shell)
             shell_nodes.append(shell)
@@ -63,13 +57,8 @@ func _collect_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
         _collect_meshes(child, out)
 
 func _looks_like_fur(mesh_node: MeshInstance3D) -> bool:
-    if mesh_node.mesh == null:
+    if mesh_node.mesh == null or not mesh_node.visible:
         return false
-    var lowered := mesh_node.name.to_lower()
-    for token in EXCLUDED_TOKENS:
-        if lowered.contains(token):
-            return false
-    # Avoid tiny accessory meshes even when their names are generic.
-    var box := mesh_node.get_aabb()
-    var largest := maxf(box.size.x, maxf(box.size.y, box.size.z))
-    return largest > 0.12
+    # Martin v2 explicitly marks only real furry surfaces. This prevents the
+    # fallback Cat Pilot, clothes, eyes and accessories from receiving shells.
+    return mesh_node.name.begins_with("Fur_")
