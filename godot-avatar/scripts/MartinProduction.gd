@@ -6,6 +6,7 @@ const MARTIN_V2_VISUAL := preload("res://scripts/MartinV2Visual.gd")
 @onready var model_mount: Node3D = $ModelMount
 @onready var camera: Camera3D = $Camera3D
 
+var compatibility_container: Node3D
 var model_instance: Node3D
 var visual_v2: Node3D
 var adapter: AvatarModelAdapter
@@ -24,16 +25,21 @@ func _ready() -> void:
         push_error("MARTIN_PRODUCTION_MODEL_MISSING %s" % MODEL_PATH)
         return
 
-    # Keep the proven Cat Pilot rig/animations as an invisible compatibility rig.
-    # Martin v2 is the actual rendered character.
+    # Keep the proven Cat Pilot skeleton/animations strictly as an invisible compatibility rig.
+    # The wrapper remains hidden even when legacy animation tracks toggle child mesh visibility.
+    compatibility_container = Node3D.new()
+    compatibility_container.name = "CompatibilityRigHidden"
+    model_mount.add_child(compatibility_container)
+
     model_instance = packed.instantiate() as Node3D
     if model_instance == null:
         push_error("MARTIN_PRODUCTION_MODEL_INVALID")
         return
     model_instance.name = "MartinCompatibilityRig"
-    model_mount.add_child(model_instance)
+    compatibility_container.add_child(model_instance)
     _fit_model_to_stage()
     _hide_source_meshes(model_instance)
+    compatibility_container.visible = false
 
     visual_v2 = MARTIN_V2_VISUAL.new() as Node3D
     visual_v2.name = "MartinV2"
@@ -63,11 +69,12 @@ func _ready() -> void:
     _on_energy_changed(MartinBridge.energy)
 
     var caps: Dictionary = adapter.get_capabilities()
-    print("MARTIN_PRODUCTION_READY skeleton=%s face=%s animations=%s morphs=%s visual=v2" % [
+    print("MARTIN_PRODUCTION_READY skeleton=%s face=%s animations=%s morphs=%s visual=v2 legacy_visible=%s" % [
         caps.get("skeleton", false),
         caps.get("face_mesh", false),
         caps.get("animations", []),
         caps.get("blend_shapes", []),
+        compatibility_container.visible,
     ])
 
     if "--avatar-smoke" in OS.get_cmdline_user_args():
@@ -105,6 +112,10 @@ func _on_host_look(x: float, y: float) -> void:
 func _process(delta: float) -> void:
     if model_instance == null:
         return
+    # Legacy visibility tracks are allowed to animate internally, but the wrapper is always hidden.
+    if compatibility_container != null and compatibility_container.visible:
+        compatibility_container.visible = false
+
     elapsed += delta
     blink_clock += delta
 
@@ -178,17 +189,16 @@ func _on_state_changed(value: String) -> void:
     if adapter == null:
         return
     adapter.clear_face()
-    adapter.play_best_animation(current_state)
-    if current_state == "happy":
-        adapter.set_expression("smile", 1.0)
-    elif current_state == "sleeping":
-        adapter.set_expression("blink_l", 1.0)
-        adapter.set_expression("blink_r", 1.0)
+    adapter.travel(current_state)
+    if current_state == "talking":
+        adapter.set_expression("brow_up", 0.12 + energy * 0.08)
+    elif current_state == "happy":
+        adapter.set_expression("smile", 0.65)
+    elif current_state == "thinking":
+        adapter.set_expression("brow_up", 0.28)
 
 func _on_speech_level(value: float) -> void:
     speech_level = clampf(value, 0.0, 1.0)
-    if adapter != null and current_state == "talking":
-        adapter.drive_simple_lipsync(speech_level)
 
 func _on_look_changed(x: float, y: float) -> void:
     look_target = Vector2(clampf(x, -1.0, 1.0), clampf(y, -1.0, 1.0))
@@ -196,51 +206,68 @@ func _on_look_changed(x: float, y: float) -> void:
 func _on_energy_changed(value: float) -> void:
     energy = clampf(value, 0.0, 1.0)
 
-func _on_emotion_changed(emotion: String, intensity: float) -> void:
+func _on_emotion_changed(value: String) -> void:
     if adapter == null:
         return
-    match emotion.to_lower():
-        "happy", "excited", "playful":
-            adapter.set_expression("smile", intensity)
-        "sleepy":
-            adapter.set_expression("blink_l", intensity)
-            adapter.set_expression("blink_r", intensity)
+    match value.to_lower():
+        "happy":
+            adapter.set_expression("smile", 0.72)
+            adapter.set_expression("brow_up", 0.10)
+        "excited":
+            adapter.set_expression("smile", 0.88)
+            adapter.set_expression("brow_up", 0.42)
+        "thinking":
+            adapter.set_expression("brow_up", 0.30)
+        _:
+            pass
 
-func _on_action_requested(action: String) -> void:
+func _on_action_requested(value: String) -> void:
     if adapter == null:
         return
-    var a: String = action.to_lower()
-    if a in ["dance", "dj", "cheer", "celebrate"]:
-        adapter.play_best_animation("happy" if a in ["cheer", "celebrate"] else "dj")
-    elif a in ["walk", "run"]:
-        adapter.play_best_animation(a)
+    adapter.play_best_animation(value)
 
 func _blink() -> void:
-    if adapter == null or current_state == "sleeping":
+    if adapter == null:
         return
-    adapter.set_expression("blink_l", 1.0)
-    adapter.set_expression("blink_r", 1.0)
-    get_tree().create_timer(0.11).timeout.connect(func():
-        if adapter != null and current_state != "sleeping":
-            adapter.set_expression("blink_l", 0.0)
-            adapter.set_expression("blink_r", 0.0)
-    )
+    var tween: Tween = create_tween()
+    tween.set_parallel(true)
+    tween.tween_method(func(v: float): adapter.set_expression("blink_l", v), 0.0, 1.0, 0.065)
+    tween.tween_method(func(v: float): adapter.set_expression("blink_r", v), 0.0, 1.0, 0.065)
+    await tween.finished
+    var open_tween: Tween = create_tween()
+    open_tween.set_parallel(true)
+    open_tween.tween_method(func(v: float): adapter.set_expression("blink_l", v), 1.0, 0.0, 0.080)
+    open_tween.tween_method(func(v: float): adapter.set_expression("blink_r", v), 1.0, 0.0, 0.080)
 
 func _run_smoke() -> void:
-    await get_tree().process_frame
-    if adapter == null or not adapter.is_production_model_ready():
-        push_error("MARTIN_PRODUCTION_SMOKE_NO_SKELETON")
+    await get_tree().create_timer(0.25).timeout
+    var caps: Dictionary = adapter.get_capabilities() if adapter != null else {}
+    if not caps.get("skeleton", false):
+        push_error("MARTIN_SMOKE_FAIL skeleton")
         get_tree().quit(2)
         return
-    var caps: Dictionary = adapter.get_capabilities()
-    var animations: Array = caps.get("animations", [])
-    for test_state in ["idle", "listening", "thinking", "talking", "happy", "dj", "walk", "run"]:
-        _on_state_changed(test_state)
-        if test_state == "talking":
-            _on_speech_level(0.72)
-        await get_tree().create_timer(0.12).timeout
-    _on_speech_level(0.0)
-    _on_state_changed("idle")
-    print("MARTIN_PRODUCTION_SMOKE_OK skeleton=true animations=%d model=%s visual=v2" % [animations.size(), MODEL_PATH])
-    await get_tree().create_timer(0.8).timeout
-    get_tree().quit()
+    if not caps.get("animation_player", false):
+        push_error("MARTIN_SMOKE_FAIL animation_player")
+        get_tree().quit(3)
+        return
+    if compatibility_container == null or compatibility_container.visible:
+        push_error("MARTIN_SMOKE_FAIL legacy_visibility")
+        get_tree().quit(4)
+        return
+    var animations: Array = caps.get("animations", []) as Array
+    for required: String in ["DefaultAnim", "Cheer", "Walk", "Run"]:
+        if required not in animations:
+            push_error("MARTIN_SMOKE_FAIL animation=%s" % required)
+            get_tree().quit(5)
+            return
+    MartinBridge.set_state("listening")
+    MartinBridge.set_state("thinking")
+    MartinBridge.set_state("talking")
+    MartinBridge.set_speech_level(0.75)
+    MartinBridge.trigger_action("happy")
+    MartinBridge.set_state("dj")
+    MartinBridge.trigger_action("dance")
+    MartinBridge.set_look(0.35, -0.18)
+    await get_tree().create_timer(0.35).timeout
+    print("MARTIN_SMOKE_OK states=idle,listening,thinking,talking,dj model=production visual=v2 legacy_hidden=true")
+    get_tree().quit(0)
