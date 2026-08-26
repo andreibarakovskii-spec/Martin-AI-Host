@@ -1,0 +1,1 @@
+v0.4.0-fixed: CI decodes the checked-in Martin portrait into drawable-nodpi before Android compilation, verifies the premium launcher and adaptive icon references, and uses a separate applicationId to prevent stale installs from launching the old activity.

@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <application android:allowBackup="false" android:label="Martin AI Host" android:theme="@style/AppTheme" android:icon="@drawable/martin_idle" android:roundIcon="@drawable/martin_idle" android:hardwareAccelerated="true">
+    <application android:allowBackup="false" android:label="Martin AI Host FIX" android:theme="@style/AppTheme" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:hardwareAccelerated="true">
         <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".VisualSettingsActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".RankingActivity" android:exported="false" android:screenOrientation="portrait" />

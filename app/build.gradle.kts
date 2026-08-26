@@ -7,11 +7,11 @@ android {
     namespace = "com.imagine.martinhost"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.imagine.martinhost"
+        applicationId = "com.imagine.martinhost.fixed"
         minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0-premium"
+        versionCode = 4
+        versionName = "0.4.0-fixed"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

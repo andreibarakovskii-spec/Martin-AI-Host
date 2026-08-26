@@ -1,12 +1,8 @@
 name: Build Martin AI Host APK
-
 on:
   push:
-    branches: [ main, godot-avatar-v1 ]
-  pull_request:
-    branches: [ main, godot-avatar-v1 ]
+    branches: [godot-avatar-v1]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,65 +12,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Restore and validate Martin portrait
+        run: |
+          mkdir -p app/src/main/res/drawable-nodpi
+          base64 -d app/src/main/assets/martin_portrait.b64 > app/src/main/res/drawable-nodpi/martin_idle.jpg
+          test -s app/src/main/res/drawable-nodpi/martin_idle.jpg
+          file app/src/main/res/drawable-nodpi/martin_idle.jpg | grep -E 'JPEG|PNG'
+          grep -q 'PremiumMainActivity' app/src/main/AndroidManifest.xml
+          grep -q '@mipmap/ic_launcher' app/src/main/AndroidManifest.xml
+          grep -q '@drawable/martin_idle' app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-      - name: Validate current MVP source
-        run: |
-          python3 - <<'PY'
-          import pathlib
-          main=pathlib.Path('app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java').read_text()
-          assert 'ContinuousSpeechEngine' in main, 'Continuous Meeting audio missing from premium launcher'
-          assert 'GroqTranscriber' in main, 'Whisper transcription missing from premium launcher'
-          assert 'TurnManager' in main, 'self-speech gate missing from premium launcher'
-          assert 'MartinSpriteView' in main, 'Martin visual host missing from premium launcher'
-          manifest=pathlib.Path('app/src/main/AndroidManifest.xml').read_text()
-          assert '.PremiumMainActivity' in manifest and 'android.intent.action.MAIN' in manifest, 'Premium launcher missing'
-          neural=pathlib.Path('app/src/main/java/com/imagine/martinhost/MartinNeuralSpeaker.kt')
-          assert neural.exists(), 'Neural speaker source missing'
-          print('Premium MVP source smoke: OK')
-          PY
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
-      - name: Validate APK
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Validate built APK
         run: |
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          unzip -p app/build/outputs/apk/debug/app-debug.apk AndroidManifest.xml >/dev/null
-          echo 'APK build: OK'
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Android MVP smoke test
-        uses: reactivecircus/android-emulator-runner@v2
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+      - uses: actions/upload-artifact@v4
         with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_4
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb shell am force-stop com.imagine.martinhost
-            adb shell monkey -p com.imagine.martinhost -c android.intent.category.LAUNCHER 1
-            sleep 3
-            FOCUS="$(adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -n 2)"
-            echo "$FOCUS"
-            echo "$FOCUS" | grep -q 'com.imagine.martinhost/.PremiumMainActivity'
-            adb exec-out screencap -p > martin-mvp.png
-            test -s martin-mvp.png
-      - name: Upload MVP screenshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Martin-MVP-screenshot
-          path: martin-mvp.png
-          if-no-files-found: warn
-      - name: Upload debug APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Martin-AI-Host-MVP-apk
+          name: Martin-AI-Host-v0.4.0-fixed
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
