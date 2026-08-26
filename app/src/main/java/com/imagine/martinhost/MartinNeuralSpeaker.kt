@@ -3,7 +3,6 @@ package com.imagine.martinhost
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
 import audio.soniqo.speech.ModelManager
 import audio.soniqo.speech.SpeechSynthesizer
@@ -101,14 +100,18 @@ class MartinNeuralSpeaker(
         var text = raw.trim()
             .replace("...", "…")
             .replace(Regex("\\s+"), " ")
+            // Never pass SSML-like cues to Supertonic: its direct synthesizer
+            // accepts plain text, and unknown tags may be spoken literally.
+            .replace(Regex("<[^>]+>"), "")
+            .trim()
 
-        // Supertonic accepts expressive inline cues; keep them sparse so Russian
-        // pronunciation stays natural. Punctuation does most prosody work.
         text = when (emotion) {
-            "happy", "celebrate", "excited" -> "<breath> $text${if (energy > .72f) "!" else ""}"
-            "playful", "sarcastic" -> "$text <laugh>"
-            "warm", "toast" -> "<breath> $text"
-            "sad", "disappointed" -> "<sigh> $text"
+            "happy", "celebrate", "excited" -> {
+                if (energy > .72f && text.lastOrNull() !in listOf('!', '?')) "$text!" else text
+            }
+            "playful", "sarcastic" -> text.replace(". ", ". — ")
+            "warm", "toast" -> text.replace(". ", "… ")
+            "sad", "disappointed" -> if (text.endsWith(".")) text.dropLast(1) + "…" else "$text…"
             else -> text
         }
         return text
