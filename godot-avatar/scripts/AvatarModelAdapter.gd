@@ -29,8 +29,6 @@ const EXPRESSION_ALIASES := {
     "brow_up": ["browInnerUp", "browOuterUpLeft", "browOuterUpRight"],
 }
 
-# The CC0 Cat Pilot base ships these authored clips: DefaultAnim, Default, Cheer,
-# Walk, Run, PutOnGoggles and others. Map AI states to those real clip names first.
 const ANIMATION_ALIASES := {
     "idle": ["DefaultAnim", "Default", "idle", "Idle", "standing", "Standing"],
     "listening": ["DefaultAnim", "Default", "listening", "listen", "Idle", "idle"],
@@ -77,8 +75,8 @@ func _auto_discover(root: Node) -> void:
             animation_player = node as AnimationPlayer
         if node is MeshInstance3D:
             var candidate: MeshInstance3D = node as MeshInstance3D
-            if candidate.mesh != null:
-                var count: int = candidate.mesh.get_blend_shape_count()
+            if candidate.mesh != null and candidate.mesh.has_method("get_blend_shape_count"):
+                var count: int = int(candidate.mesh.call("get_blend_shape_count"))
                 if count > best_morph_count:
                     best_morph_count = count
                     best_face = candidate
@@ -110,11 +108,11 @@ func get_animation_names() -> Array[String]:
 
 func _index_blend_shapes() -> void:
     blendshape_cache.clear()
-    if face_mesh == null or face_mesh.mesh == null:
+    if face_mesh == null or face_mesh.mesh == null or not face_mesh.mesh.has_method("get_blend_shape_count"):
         return
-    var blend_count: int = face_mesh.mesh.get_blend_shape_count()
+    var blend_count: int = int(face_mesh.mesh.call("get_blend_shape_count"))
     for i: int in range(blend_count):
-        blendshape_cache[String(face_mesh.mesh.get_blend_shape_name(i))] = i
+        blendshape_cache[String(face_mesh.mesh.call("get_blend_shape_name", i))] = i
 
 func set_expression(name: String, weight: float) -> void:
     var aliases: Array = EXPRESSION_ALIASES.get(name, [name]) as Array
