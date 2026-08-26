@@ -8,7 +8,7 @@ import android.util.Base64;
 import android.view.View;
 import java.io.*;
 
-/** Neon Martin host portrait. Always keeps a packaged drawable fallback so the cat is visible on-device. */
+/** Neon Martin host portrait. Legacy fallback only; production UI renders Martin through GodotFragment. */
 public final class MartinSpriteView extends View {
     public enum State { IDLE, LISTENING, THINKING, TALKING, GAME, TOAST, DJ, HAPPY, SLEEPING }
     private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
@@ -19,9 +19,9 @@ public final class MartinSpriteView extends View {
     public MartinSpriteView(Context c){super(c);init();} public MartinSpriteView(Context c, AttributeSet a){super(c,a);init();}
     private void init(){setLayerType(View.LAYER_TYPE_SOFTWARE,null);setBackground(new ColorDrawable(Color.TRANSPARENT));loadPortrait();post(tick);}
     private void loadPortrait(){
-        // Prefer Android-packaged image: unlike an asset/base64 decoder this is verified by aapt at build time.
-        try{ portrait=BitmapFactory.decodeResource(getResources(),R.drawable.martin_idle); }catch(Exception ignored){}
-        if(portrait!=null)return;
+        // Legacy fallback only. The removed martin_idle drawable must not block Android compilation.
+        // Production renders the rigged GLB in GodotFragment; this view can still use its packaged base64 portrait.
+        portrait=null;
         try{InputStream in=getContext().getAssets().open("martin_portrait.b64");ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))>0)out.write(b,0,n);byte[] jpg=Base64.decode(out.toString("UTF-8"),Base64.DEFAULT);portrait=BitmapFactory.decodeByteArray(jpg,0,jpg.length);}catch(Exception ignored){portrait=null;}
     }
     public void setState(State s){state=s==null?State.IDLE:s;epoch=System.currentTimeMillis();invalidate();}
