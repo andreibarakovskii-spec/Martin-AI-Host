@@ -10,8 +10,8 @@ android {
         applicationId = "com.imagine.martinhost.fixed"
         minSdk = 31
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.7.0-production-3d"
+        versionCode = 8
+        versionName = "0.8.0-party-ready"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -19,7 +19,6 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     androidResources {
-        // Godot keeps imported runtime metadata in the hidden .godot asset folder.
         ignoreAssetsPattern = "!.svn:!.git:!.gitignore:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
     }
 }
@@ -29,4 +28,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.godotengine:godot:4.7.2.stable")
     implementation("androidx.fragment:fragment:1.8.9")
+
+    // Front-camera face tracking. Camera frames are processed locally and never stored.
+    implementation("androidx.camera:camera-core:1.6.1")
+    implementation("androidx.camera:camera-camera2:1.6.1")
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
+    implementation("com.google.mlkit:face-detection:16.1.7")
 }

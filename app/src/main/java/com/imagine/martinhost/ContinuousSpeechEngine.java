@@ -6,17 +6,15 @@ import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.NoiseSuppressor;
 import android.os.Process;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 
-/**
- * Continuous microphone capture inspired by the LiveLingo meeting pipeline.
- * AudioRecord never needs to restart between phrases. A rolling pre-roll keeps
- * the beginning of speech, while a lightweight adaptive VAD creates WAV chunks.
- */
+/** Continuous capture with adaptive VAD, pre-roll and hardware AEC/NS when available. */
 public final class ContinuousSpeechEngine {
     public interface Listener {
         void onSpeechChunk(byte[] wav16kMono);
@@ -28,10 +26,10 @@ public final class ContinuousSpeechEngine {
     private static final int SAMPLE_RATE = 16000;
     private static final int FRAME_MS = 20;
     private static final int FRAME_SAMPLES = SAMPLE_RATE * FRAME_MS / 1000;
-    private static final int PRE_ROLL_MS = 640;
+    private static final int PRE_ROLL_MS = 700;
     private static final int PRE_ROLL_FRAMES = PRE_ROLL_MS / FRAME_MS;
-    private static final int MIN_SPEECH_MS = 180;
-    private static final int END_SILENCE_MS = 440;
+    private static final int MIN_SPEECH_MS = 160;
+    private static final int END_SILENCE_MS = 420;
     private static final int MAX_UTTERANCE_MS = 14000;
 
     private final Context context;
@@ -39,6 +37,8 @@ public final class ContinuousSpeechEngine {
     private final TurnManager turnManager;
     private volatile boolean running;
     private AudioRecord record;
+    private AcousticEchoCanceler aec;
+    private NoiseSuppressor ns;
     private Thread thread;
 
     public ContinuousSpeechEngine(Context context, TurnManager turnManager, Listener listener) {
@@ -59,6 +59,7 @@ public final class ContinuousSpeechEngine {
             record = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferBytes);
             if (record.getState() != AudioRecord.STATE_INITIALIZED) throw new IllegalStateException("AudioRecord not initialized");
+            enableAudioFx(record.getAudioSessionId());
             running = true;
             record.startRecording();
             thread = new Thread(this::captureLoop, "MartinContinuousAudio");
@@ -71,11 +72,24 @@ public final class ContinuousSpeechEngine {
         }
     }
 
+    private void enableAudioFx(int sessionId) {
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                aec = AcousticEchoCanceler.create(sessionId);
+                if (aec != null) aec.setEnabled(true);
+            }
+        } catch (Exception ignored) { aec = null; }
+        try {
+            if (NoiseSuppressor.isAvailable()) {
+                ns = NoiseSuppressor.create(sessionId);
+                if (ns != null) ns.setEnabled(true);
+            }
+        } catch (Exception ignored) { ns = null; }
+    }
+
     public synchronized void stop() {
         running = false;
-        if (record != null) {
-            try { record.stop(); } catch (Exception ignored) {}
-        }
+        if (record != null) { try { record.stop(); } catch (Exception ignored) {} }
         if (thread != null) {
             try { thread.join(500); } catch (InterruptedException ignored) {}
             thread = null;
@@ -88,9 +102,7 @@ public final class ContinuousSpeechEngine {
         short[] frame = new short[FRAME_SAMPLES];
         ArrayDeque<short[]> preRoll = new ArrayDeque<>();
         ByteArrayOutputStream utterance = null;
-        int speechMs = 0;
-        int silenceMs = 0;
-        int utteranceMs = 0;
+        int speechMs = 0, silenceMs = 0, utteranceMs = 0;
         float noiseDb = -48f;
         boolean inSpeech = false;
 
@@ -103,24 +115,25 @@ public final class ContinuousSpeechEngine {
             short[] copy = new short[read];
             System.arraycopy(frame, 0, copy, 0, read);
             float rmsDb = rmsDb(copy);
-
-            // Do not train noise floor on Martin's own playback.
             if (!inSpeech && turnManager.acceptMicForStt()) {
                 float capped = Math.min(rmsDb, noiseDb + 8f);
                 noiseDb = noiseDb * 0.985f + capped * 0.015f;
             }
-            float threshold = Math.max(-42f, noiseDb + 9.5f);
+            float threshold = Math.max(-43f, noiseDb + 9.0f);
             boolean voiced = turnManager.acceptMicForStt() && rmsDb > threshold;
             listener.onLevel(rmsDb, noiseDb, voiced);
 
             if (!inSpeech) {
-                preRoll.addLast(copy);
-                while (preRoll.size() > PRE_ROLL_FRAMES) preRoll.removeFirst();
+                if (turnManager.acceptMicForStt()) {
+                    preRoll.addLast(copy);
+                    while (preRoll.size() > PRE_ROLL_FRAMES) preRoll.removeFirst();
+                } else {
+                    preRoll.clear();
+                }
                 if (voiced) {
                     inSpeech = true;
-                    speechMs = FRAME_MS;
-                    silenceMs = 0;
-                    utteranceMs = PRE_ROLL_MS + FRAME_MS;
+                    speechMs = FRAME_MS; silenceMs = 0;
+                    utteranceMs = preRoll.size() * FRAME_MS + FRAME_MS;
                     utterance = new ByteArrayOutputStream(32000);
                     for (short[] p : preRoll) writePcm(utterance, p);
                     preRoll.clear();
@@ -130,32 +143,22 @@ public final class ContinuousSpeechEngine {
                 continue;
             }
 
-            // If Martin starts speaking, discard the current human chunk rather than
-            // letting self-audio leak into recognition.
             if (!turnManager.acceptMicForStt()) {
-                inSpeech = false;
-                utterance = null;
-                preRoll.clear();
+                inSpeech = false; utterance = null; preRoll.clear();
                 speechMs = silenceMs = utteranceMs = 0;
                 continue;
             }
 
             writePcm(utterance, copy);
             utteranceMs += FRAME_MS;
-            if (voiced) {
-                speechMs += FRAME_MS;
-                silenceMs = 0;
-            } else {
-                silenceMs += FRAME_MS;
-            }
+            if (voiced) { speechMs += FRAME_MS; silenceMs = 0; }
+            else silenceMs += FRAME_MS;
 
             boolean complete = silenceMs >= END_SILENCE_MS && speechMs >= MIN_SPEECH_MS;
             boolean tooLong = utteranceMs >= MAX_UTTERANCE_MS;
             if (complete || tooLong) {
                 byte[] pcm = utterance.toByteArray();
-                inSpeech = false;
-                utterance = null;
-                preRoll.clear();
+                inSpeech = false; utterance = null; preRoll.clear();
                 speechMs = silenceMs = utteranceMs = 0;
                 if (turnManager.acceptMicForStt()) {
                     listener.onStatus("Распознаю…");
@@ -166,10 +169,9 @@ public final class ContinuousSpeechEngine {
     }
 
     private void releaseRecord() {
-        if (record != null) {
-            try { record.release(); } catch (Exception ignored) {}
-            record = null;
-        }
+        if (aec != null) { try { aec.release(); } catch (Exception ignored) {} aec = null; }
+        if (ns != null) { try { ns.release(); } catch (Exception ignored) {} ns = null; }
+        if (record != null) { try { record.release(); } catch (Exception ignored) {} record = null; }
     }
 
     private static float rmsDb(short[] data) {
@@ -181,15 +183,11 @@ public final class ContinuousSpeechEngine {
     }
 
     private static void writePcm(ByteArrayOutputStream out, short[] samples) {
-        for (short s : samples) {
-            out.write(s & 0xff);
-            out.write((s >>> 8) & 0xff);
-        }
+        for (short s : samples) { out.write(s & 0xff); out.write((s >>> 8) & 0xff); }
     }
 
     private static byte[] wavFromPcm(byte[] pcm) {
-        int total = 44 + pcm.length;
-        ByteBuffer b = ByteBuffer.allocate(total).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer b = ByteBuffer.allocate(44 + pcm.length).order(ByteOrder.LITTLE_ENDIAN);
         b.put(new byte[]{'R','I','F','F'}).putInt(36 + pcm.length).put(new byte[]{'W','A','V','E'});
         b.put(new byte[]{'f','m','t',' '}).putInt(16).putShort((short)1).putShort((short)1);
         b.putInt(SAMPLE_RATE).putInt(SAMPLE_RATE * 2).putShort((short)2).putShort((short)16);
