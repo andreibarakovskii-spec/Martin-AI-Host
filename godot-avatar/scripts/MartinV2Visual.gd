@@ -48,8 +48,8 @@ func _process(delta: float) -> void:
         next_blink = randf_range(2.8, 5.4)
     if blinking:
         blink_phase += delta * 11.0
-        var amount := sin(minf(blink_phase, PI))
-        var sy := lerpf(1.0, 0.08, amount)
+        var amount: float = sin(minf(blink_phase, PI))
+        var sy: float = lerpf(1.0, 0.08, amount)
         if left_eye_group != null:
             left_eye_group.scale.y = sy
         if right_eye_group != null:
@@ -75,7 +75,7 @@ func _make_materials() -> void:
     whisker_mat = _mat(Color(0.78, 0.80, 0.82, 1.0), 0.72, 0.0, 0.20)
 
 func _mat(color: Color, roughness: float, metallic: float, specular: float) -> StandardMaterial3D:
-    var m := StandardMaterial3D.new()
+    var m: StandardMaterial3D = StandardMaterial3D.new()
     m.albedo_color = color
     m.roughness = roughness
     m.metallic = metallic
@@ -92,9 +92,9 @@ func _build_character() -> void:
     _sphere("Hoodie_Chest", Vector3(0.0, 1.35, 0.17), 0.41, Vector3(1.08, 0.94, 0.72), hoodie_mat, body_group)
     _torus("Hood_Rim", Vector3(0.0, 1.79, 0.02), 0.33, 0.405, hoodie_detail_mat, body_group).rotation_degrees.x = 90.0
 
-    var arm_l := _capsule("Hoodie_Arm_L", Vector3(-0.50, 1.28, 0.08), 0.16, 0.72, Vector3(0.94, 1.0, 0.90), hoodie_mat, body_group)
+    var arm_l: MeshInstance3D = _capsule("Hoodie_Arm_L", Vector3(-0.50, 1.28, 0.08), 0.16, 0.72, Vector3(0.94, 1.0, 0.90), hoodie_mat, body_group)
     arm_l.rotation_degrees.z = -9.0
-    var arm_r := _capsule("Hoodie_Arm_R", Vector3(0.50, 1.28, 0.08), 0.16, 0.72, Vector3(0.94, 1.0, 0.90), hoodie_mat, body_group)
+    var arm_r: MeshInstance3D = _capsule("Hoodie_Arm_R", Vector3(0.50, 1.28, 0.08), 0.16, 0.72, Vector3(0.94, 1.0, 0.90), hoodie_mat, body_group)
     arm_r.rotation_degrees.z = 9.0
     _sphere("Fur_Paw_L", Vector3(-0.55, 0.96, 0.19), 0.175, Vector3(0.98, 0.90, 0.82), fur_mat, body_group)
     _sphere("Fur_Paw_R", Vector3(0.55, 0.96, 0.19), 0.175, Vector3(0.98, 0.90, 0.82), fur_mat, body_group)
@@ -131,7 +131,7 @@ func _build_character() -> void:
     _headphones()
 
 func _eye(x: float) -> Node3D:
-    var group := Node3D.new()
+    var group: Node3D = Node3D.new()
     group.name = "EyeGroup_L" if x < 0.0 else "EyeGroup_R"
     head_group.add_child(group)
 
@@ -144,94 +144,97 @@ func _eye(x: float) -> Node3D:
     _sphere("Eye_Highlight_Small", Vector3(x + 0.025, 2.382, 0.662), 0.007, Vector3.ONE, highlight_mat, group)
 
     # Soft upper lid, thinner than an eyebrow.
-    var lid := _capsule("Fur_UpperLid", Vector3(x, 2.545, 0.515), 0.030, 0.245, Vector3(1.0, 1.0, 0.70), fur_mat, group)
+    var lid: MeshInstance3D = _capsule("Fur_UpperLid", Vector3(x, 2.545, 0.515), 0.030, 0.245, Vector3(1.0, 1.0, 0.70), fur_mat, group)
     lid.rotation_degrees.z = 83.0 if x < 0.0 else -83.0
     return group
 
 func _ear(x: float, tilt: float) -> void:
-    var outer := _cone("Fur_Ear_L" if x < 0.0 else "Fur_Ear_R", Vector3(x, 2.84, -0.015), 0.225, 0.43, fur_mat, head_group, 18)
+    var outer: MeshInstance3D = _cone("Fur_Ear_L" if x < 0.0 else "Fur_Ear_R", Vector3(x, 2.84, -0.015), 0.225, 0.43, fur_mat, head_group, 18)
     outer.rotation_degrees.z = tilt
     outer.rotation_degrees.y = 18.0
-    var inner := _cone("InnerEar_L" if x < 0.0 else "InnerEar_R", Vector3(x, 2.835, 0.115), 0.118, 0.275, inner_ear_mat, head_group, 18)
+    var inner: MeshInstance3D = _cone("InnerEar_L" if x < 0.0 else "InnerEar_R", Vector3(x, 2.835, 0.115), 0.118, 0.275, inner_ear_mat, head_group, 18)
     inner.rotation_degrees.z = tilt
     inner.rotation_degrees.y = 18.0
 
 func _cheek_tufts(side: float) -> void:
-    for i in range(2):
-        var tuft := _cone("Fur_CheekTuft_%s_%d" % ["L" if side < 0.0 else "R", i], Vector3(side * (0.545 + i * 0.028), 2.12 - i * 0.08, 0.12), 0.075 - i * 0.010, 0.18, fur_mat, head_group, 10)
+    for i: int in range(2):
+        var tuft: MeshInstance3D = _cone("Fur_CheekTuft_%s_%d" % ["L" if side < 0.0 else "R", i], Vector3(side * (0.545 + i * 0.028), 2.12 - i * 0.08, 0.12), 0.075 - i * 0.010, 0.18, fur_mat, head_group, 10)
         tuft.rotation_degrees.z = side * (62.0 + i * 9.0)
         tuft.rotation_degrees.x = 90.0
 
 func _forehead_markings() -> void:
-    var center := _capsule("Stripe_Center", Vector3(0.0, 2.65, 0.475), 0.013, 0.16, Vector3.ONE, fur_dark_mat, head_group)
+    var center: MeshInstance3D = _capsule("Stripe_Center", Vector3(0.0, 2.65, 0.475), 0.013, 0.16, Vector3.ONE, fur_dark_mat, head_group)
     center.rotation_degrees.z = 90.0
-    var left := _capsule("Stripe_L", Vector3(-0.095, 2.63, 0.47), 0.012, 0.13, Vector3.ONE, fur_dark_mat, head_group)
+    var left: MeshInstance3D = _capsule("Stripe_L", Vector3(-0.095, 2.63, 0.47), 0.012, 0.13, Vector3.ONE, fur_dark_mat, head_group)
     left.rotation_degrees.z = 69.0
-    var right := _capsule("Stripe_R", Vector3(0.095, 2.63, 0.47), 0.012, 0.13, Vector3.ONE, fur_dark_mat, head_group)
+    var right: MeshInstance3D = _capsule("Stripe_R", Vector3(0.095, 2.63, 0.47), 0.012, 0.13, Vector3.ONE, fur_dark_mat, head_group)
     right.rotation_degrees.z = -69.0
 
 func _mouth() -> void:
-    var stem := _box("Mouth_Stem", Vector3(0.0, 2.045, 0.657), Vector3(0.010, 0.070, 0.010), black_mat, head_group)
-    var left := _capsule("Mouth_L", Vector3(-0.046, 2.005, 0.652), 0.008, 0.105, Vector3.ONE, black_mat, head_group)
+    _box("Mouth_Stem", Vector3(0.0, 2.045, 0.657), Vector3(0.010, 0.070, 0.010), black_mat, head_group)
+    var left: MeshInstance3D = _capsule("Mouth_L", Vector3(-0.046, 2.005, 0.652), 0.008, 0.105, Vector3.ONE, black_mat, head_group)
     left.rotation_degrees.z = 65.0
-    var right := _capsule("Mouth_R", Vector3(0.046, 2.005, 0.652), 0.008, 0.105, Vector3.ONE, black_mat, head_group)
+    var right: MeshInstance3D = _capsule("Mouth_R", Vector3(0.046, 2.005, 0.652), 0.008, 0.105, Vector3.ONE, black_mat, head_group)
     right.rotation_degrees.z = -65.0
 
 func _whiskers() -> void:
-    for side in [-1.0, 1.0]:
-        for i in range(3):
-            var x := side * 0.36
-            var y := 2.12 - float(i) * 0.047
-            var w := _box("Whisker_%s_%d" % ["L" if side < 0.0 else "R", i], Vector3(x, y, 0.614), Vector3(0.265, 0.004, 0.004), whisker_mat, head_group)
+    var sides: Array[float] = [-1.0, 1.0]
+    for side: float in sides:
+        for i: int in range(3):
+            var x: float = side * 0.36
+            var y: float = 2.12 - float(i) * 0.047
+            var w: MeshInstance3D = _box("Whisker_%s_%d" % ["L" if side < 0.0 else "R", i], Vector3(x, y, 0.614), Vector3(0.265, 0.004, 0.004), whisker_mat, head_group)
             w.rotation_degrees.z = side * (3.0 + float(i) * 6.0)
 
 func _headphones() -> void:
-    var band := _torus("Headphone_Band", Vector3(0.0, 2.44, -0.11), 0.455, 0.505, black_mat, head_group)
+    var band: MeshInstance3D = _torus("Headphone_Band", Vector3(0.0, 2.44, -0.11), 0.455, 0.505, black_mat, head_group)
     band.rotation_degrees.x = 90.0
-    for side in [-1.0, 1.0]:
-        var cup := _cylinder("Headphone_Cup", Vector3(side * 0.565, 2.31, -0.015), 0.175, 0.095, black_mat, head_group)
+    var sides: Array[float] = [-1.0, 1.0]
+    for side: float in sides:
+        var cup: MeshInstance3D = _cylinder("Headphone_Cup", Vector3(side * 0.565, 2.31, -0.015), 0.175, 0.095, black_mat, head_group)
         cup.rotation_degrees.x = 90.0
-        var trim := _torus("Headphone_Trim", Vector3(side * 0.565, 2.31, 0.044), 0.135, 0.158, gold_mat, head_group)
+        var trim: MeshInstance3D = _torus("Headphone_Trim", Vector3(side * 0.565, 2.31, 0.044), 0.135, 0.158, gold_mat, head_group)
         trim.rotation_degrees.x = 90.0
 
 func _hoodie_details() -> void:
     _sphere("Hoodie_Pocket", Vector3(0.0, 1.14, 0.450), 0.245, Vector3(1.05, 0.45, 0.20), hoodie_detail_mat, body_group)
-    for side in [-1.0, 1.0]:
-        var cord := _capsule("Hoodie_Cord", Vector3(side * 0.085, 1.56, 0.445), 0.010, 0.25, Vector3.ONE, gold_mat, body_group)
+    var sides: Array[float] = [-1.0, 1.0]
+    for side: float in sides:
+        var cord: MeshInstance3D = _capsule("Hoodie_Cord", Vector3(side * 0.085, 1.56, 0.445), 0.010, 0.25, Vector3.ONE, gold_mat, body_group)
         cord.rotation_degrees.z = -side * 4.0
         _sphere("Hoodie_CordTip", Vector3(side * 0.077, 1.435, 0.448), 0.018, Vector3.ONE, gold_mat, body_group)
     _hoodie_logo()
 
 func _hoodie_logo() -> void:
-    var z := 0.475
-    var y := 1.28
-    var left := _box("Logo_L", Vector3(-0.080, y, z), Vector3(0.030, 0.17, 0.018), gold_mat, body_group)
+    var z: float = 0.475
+    var y: float = 1.28
+    var left: MeshInstance3D = _box("Logo_L", Vector3(-0.080, y, z), Vector3(0.030, 0.17, 0.018), gold_mat, body_group)
     left.rotation_degrees.z = -8.0
-    var right := _box("Logo_R", Vector3(0.080, y, z), Vector3(0.030, 0.17, 0.018), gold_mat, body_group)
+    var right: MeshInstance3D = _box("Logo_R", Vector3(0.080, y, z), Vector3(0.030, 0.17, 0.018), gold_mat, body_group)
     right.rotation_degrees.z = 8.0
-    var ml := _box("Logo_Mid_L", Vector3(-0.035, y + 0.012, z + 0.002), Vector3(0.025, 0.115, 0.018), gold_mat, body_group)
+    var ml: MeshInstance3D = _box("Logo_Mid_L", Vector3(-0.035, y + 0.012, z + 0.002), Vector3(0.025, 0.115, 0.018), gold_mat, body_group)
     ml.rotation_degrees.z = 31.0
-    var mr := _box("Logo_Mid_R", Vector3(0.035, y + 0.012, z + 0.002), Vector3(0.025, 0.115, 0.018), gold_mat, body_group)
+    var mr: MeshInstance3D = _box("Logo_Mid_R", Vector3(0.035, y + 0.012, z + 0.002), Vector3(0.025, 0.115, 0.018), gold_mat, body_group)
     mr.rotation_degrees.z = -31.0
 
 func _tail() -> void:
-    var root := Node3D.new()
+    var root: Node3D = Node3D.new()
     root.name = "TailGroup"
     body_group.add_child(root)
     var points: Array[Vector3] = [
         Vector3(0.48, 0.72, -0.25), Vector3(0.62, 0.80, -0.30), Vector3(0.75, 0.94, -0.31),
         Vector3(0.84, 1.10, -0.29), Vector3(0.88, 1.27, -0.24), Vector3(0.86, 1.43, -0.17)
     ]
-    for i in range(points.size()):
-        var r := 0.145 - float(i) * 0.010
+    for i: int in range(points.size()):
+        var r: float = 0.145 - float(i) * 0.010
         _sphere("Fur_Tail_%d" % i, points[i], r, Vector3(1.0, 1.18, 0.92), fur_mat, root)
 
 func _shoe(x: float) -> void:
-    var shoe := _capsule("Shoe", Vector3(x, 0.19, 0.17), 0.185, 0.41, Vector3(1.08, 0.70, 1.34), black_mat, body_group)
+    var shoe: MeshInstance3D = _capsule("Shoe", Vector3(x, 0.19, 0.17), 0.185, 0.41, Vector3(1.08, 0.70, 1.34), black_mat, body_group)
     shoe.rotation_degrees.x = 90.0
 
 func _sphere(name_value: String, pos: Vector3, radius: float, scale_value: Vector3, mat: Material, parent: Node) -> MeshInstance3D:
-    var mesh := SphereMesh.new()
+    var mesh: SphereMesh = SphereMesh.new()
     mesh.radius = radius
     mesh.height = radius * 2.0
     mesh.radial_segments = 72
@@ -239,7 +242,7 @@ func _sphere(name_value: String, pos: Vector3, radius: float, scale_value: Vecto
     return _instance(name_value, mesh, pos, scale_value, mat, parent)
 
 func _capsule(name_value: String, pos: Vector3, radius: float, height: float, scale_value: Vector3, mat: Material, parent: Node) -> MeshInstance3D:
-    var mesh := CapsuleMesh.new()
+    var mesh: CapsuleMesh = CapsuleMesh.new()
     mesh.radius = radius
     mesh.height = maxf(height, radius * 2.0 + 0.02)
     mesh.radial_segments = 48
@@ -247,7 +250,7 @@ func _capsule(name_value: String, pos: Vector3, radius: float, height: float, sc
     return _instance(name_value, mesh, pos, scale_value, mat, parent)
 
 func _cone(name_value: String, pos: Vector3, radius: float, height: float, mat: Material, parent: Node, segments: int = 18) -> MeshInstance3D:
-    var mesh := CylinderMesh.new()
+    var mesh: CylinderMesh = CylinderMesh.new()
     mesh.top_radius = 0.008
     mesh.bottom_radius = radius
     mesh.height = height
@@ -255,7 +258,7 @@ func _cone(name_value: String, pos: Vector3, radius: float, height: float, mat: 
     return _instance(name_value, mesh, pos, Vector3.ONE, mat, parent)
 
 func _cylinder(name_value: String, pos: Vector3, radius: float, height: float, mat: Material, parent: Node) -> MeshInstance3D:
-    var mesh := CylinderMesh.new()
+    var mesh: CylinderMesh = CylinderMesh.new()
     mesh.top_radius = radius
     mesh.bottom_radius = radius
     mesh.height = height
@@ -263,7 +266,7 @@ func _cylinder(name_value: String, pos: Vector3, radius: float, height: float, m
     return _instance(name_value, mesh, pos, Vector3.ONE, mat, parent)
 
 func _torus(name_value: String, pos: Vector3, inner_radius: float, outer_radius: float, mat: Material, parent: Node) -> MeshInstance3D:
-    var mesh := TorusMesh.new()
+    var mesh: TorusMesh = TorusMesh.new()
     mesh.inner_radius = inner_radius
     mesh.outer_radius = outer_radius
     mesh.rings = 64
@@ -271,12 +274,12 @@ func _torus(name_value: String, pos: Vector3, inner_radius: float, outer_radius:
     return _instance(name_value, mesh, pos, Vector3.ONE, mat, parent)
 
 func _box(name_value: String, pos: Vector3, size_value: Vector3, mat: Material, parent: Node) -> MeshInstance3D:
-    var mesh := BoxMesh.new()
+    var mesh: BoxMesh = BoxMesh.new()
     mesh.size = size_value
     return _instance(name_value, mesh, pos, Vector3.ONE, mat, parent)
 
 func _instance(name_value: String, mesh: Mesh, pos: Vector3, scale_value: Vector3, mat: Material, parent: Node) -> MeshInstance3D:
-    var mi := MeshInstance3D.new()
+    var mi: MeshInstance3D = MeshInstance3D.new()
     mi.name = name_value
     mi.mesh = mesh
     mi.position = pos
