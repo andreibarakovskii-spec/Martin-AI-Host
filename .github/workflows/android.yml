@@ -17,7 +17,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify production 3D tree before build
+      - name: Verify party-ready 3D tree before build
         shell: bash
         run: |
           set -euxo pipefail
@@ -26,6 +26,8 @@ jobs:
           test -s godot-avatar/scenes/MartinProduction.tscn
           test -s godot-avatar/scripts/MartinProduction.gd
           test -s godot-avatar/scripts/AvatarModelAdapter.gd
+          test -s app/src/main/java/com/imagine/martinhost/MartinFaceTracker.java
+          test -s app/src/main/java/com/imagine/martinhost/PartyDirector.java
           grep -q 'MartinProduction.tscn' godot-avatar/project.godot
           grep -q 'MartinHostPlugin' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
           grep -q 'GodotFragment' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
@@ -33,7 +35,10 @@ jobs:
           ! grep -q 'new Martin3DView' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
           ! grep -q 'new MartinSpriteView' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
           grep -q 'org.godotengine:godot:4.7.2.stable' app/build.gradle.kts
-          grep -q 'versionName = "0.7.0-production-3d"' app/build.gradle.kts
+          grep -q 'versionName = "0.8.0-party-ready"' app/build.gradle.kts
+          grep -q 'camera-camera2:1.6.1' app/build.gradle.kts
+          grep -q 'face-detection:16.1.7' app/build.gradle.kts
+          grep -q 'android.permission.CAMERA' app/src/main/AndroidManifest.xml
           grep -q 'PremiumMainActivity' app/src/main/AndroidManifest.xml
           grep -q '@mipmap/ic_launcher' app/src/main/AndroidManifest.xml
 
@@ -60,8 +65,8 @@ jobs:
           ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON' godot-import.log
           timeout 20s godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
           grep -q 'MARTIN_PRODUCTION_READY skeleton=true' godot-smoke.log
-          grep -q 'MARTIN_PRODUCTION_SMOKE_OK skeleton=true' godot-smoke.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON|MARTIN_PRODUCTION_SMOKE_NO_SKELETON' godot-smoke.log
+          grep -q 'MARTIN_SMOKE_OK visible_rig=true camera_look=true voice_states=true game_states=true' godot-smoke.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON|MARTIN_SMOKE_FAIL' godot-smoke.log
 
       - name: Package imported Godot project into Android assets
         shell: bash
@@ -83,13 +88,13 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
-      - name: Build production 3D APK
+      - name: Build party-ready APK
         shell: bash
         run: |
           set -euxo pipefail
           gradle :app:assembleDebug --stacktrace
 
-      - name: Validate APK contains Godot and the real GLB
+      - name: Validate APK contains 3D camera voice game runtime
         shell: bash
         run: |
           set -euxo pipefail
@@ -104,9 +109,9 @@ jobs:
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libgodot_android.so'
           ! unzip -l "$APK" | grep -q 'assets/martin_portrait_valid.b64'
           ! unzip -l "$APK" | grep -q 'assets/martin_avatar.html'
-          echo "PRODUCTION_3D_APK_PAYLOAD_OK $GITHUB_SHA"
+          echo "PARTY_READY_3D_APK_PAYLOAD_OK $GITHUB_SHA"
 
-      - name: Boot emulator and verify actual Martin 3D runtime
+      - name: Boot emulator and verify actual Martin runtime
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -119,6 +124,7 @@ jobs:
             APK=app/build/outputs/apk/debug/app-debug.apk
             adb install -r "$APK"
             adb shell pm grant com.imagine.martinhost.fixed android.permission.RECORD_AUDIO || true
+            adb shell pm grant com.imagine.martinhost.fixed android.permission.CAMERA || true
             adb shell pm grant com.imagine.martinhost.fixed android.permission.BLUETOOTH_CONNECT || true
             adb logcat -c
             adb shell am start -W -n com.imagine.martinhost.fixed/com.imagine.martinhost.PremiumMainActivity
@@ -135,7 +141,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Martin-AI-Host-v0.7.0-production-3d
+          name: Martin-AI-Host-v0.8.0-party-ready
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             martin-apk-screen.png
