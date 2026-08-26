@@ -50,7 +50,7 @@ jobs:
           set -euxo pipefail
           timeout 20s godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
           grep -q 'MARTIN_PRODUCTION_READY skeleton=true' godot-smoke.log
-          grep -q 'MARTIN_PRODUCTION_SMOKE_OK skeleton=true' godot-smoke.log
+          grep -q 'MARTIN_SMOKE_OK states=idle,listening,thinking,talking,dj model=production visual=v2 legacy_hidden=true' godot-smoke.log
           grep -q 'DefaultAnim' godot-smoke.log
           grep -q 'Cheer' godot-smoke.log
           grep -q 'Walk' godot-smoke.log
