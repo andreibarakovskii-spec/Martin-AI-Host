@@ -111,6 +111,13 @@ jobs:
           ! unzip -l "$APK" | grep -q 'assets/martin_avatar.html'
           echo "PARTY_READY_3D_APK_PAYLOAD_OK $GITHUB_SHA"
 
+      - name: Upload APK for immediate phone testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: Martin-AI-Host-v0.8.0-party-ready-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
       - name: Boot emulator and verify actual Martin runtime
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
