@@ -17,7 +17,7 @@ var next_blink := 3.2
 var android_host
 
 func _ready() -> void:
-    var packed := load(MODEL_PATH) as PackedScene
+    var packed: PackedScene = load(MODEL_PATH) as PackedScene
     if packed == null:
         push_error("MARTIN_PRODUCTION_MODEL_MISSING %s" % MODEL_PATH)
         return
@@ -53,7 +53,7 @@ func _ready() -> void:
     _on_look_changed(MartinBridge.look.x, MartinBridge.look.y)
     _on_energy_changed(MartinBridge.energy)
 
-    var caps := adapter.get_capabilities()
+    var caps: Dictionary = adapter.get_capabilities()
     print("MARTIN_PRODUCTION_READY skeleton=%s face=%s animations=%s morphs=%s" % [
         caps.get("skeleton", false),
         caps.get("face_mesh", false),
@@ -94,16 +94,16 @@ func _process(delta: float) -> void:
     blink_clock += delta
 
     # Small performance motion only; no old full-body vertical bobbing.
-    var idle_sway := sin(elapsed * 1.35) * 0.007
-    var performance_sway := 0.0
+    var idle_sway: float = sin(elapsed * 1.35) * 0.007
+    var performance_sway: float = 0.0
     if current_state == "talking":
         performance_sway = sin(elapsed * 7.0) * (0.004 + speech_level * 0.010)
     elif current_state == "dj":
         performance_sway = sin(elapsed * 4.2) * 0.018
     model_mount.rotation.z = lerpf(model_mount.rotation.z, idle_sway + performance_sway, minf(1.0, delta * 5.0))
 
-    var target_pitch := look_target.y * 0.025
-    var target_yaw := look_target.x * 0.045
+    var target_pitch: float = look_target.y * 0.025
+    var target_yaw: float = look_target.x * 0.045
     model_mount.rotation.x = lerpf(model_mount.rotation.x, target_pitch, minf(1.0, delta * 4.0))
     model_mount.rotation.y = lerpf(model_mount.rotation.y, target_yaw, minf(1.0, delta * 4.0))
 
@@ -116,29 +116,29 @@ func _process(delta: float) -> void:
             next_blink = randf_range(2.8, 5.4)
 
 func _fit_model_to_stage() -> void:
-    var bounds := _collect_bounds(model_instance)
+    var bounds: AABB = _collect_bounds(model_instance)
     if bounds.size.y <= 0.001:
         push_error("MARTIN_PRODUCTION_EMPTY_BOUNDS")
         return
-    var desired_height := 2.55
-    var factor := desired_height / bounds.size.y
+    var desired_height: float = 2.55
+    var factor: float = desired_height / bounds.size.y
     model_instance.scale = Vector3.ONE * factor
-    var center := bounds.position + bounds.size * 0.5
+    var center: Vector3 = bounds.position + bounds.size * 0.5
     model_instance.position = Vector3(-center.x * factor, -bounds.position.y * factor, -center.z * factor)
     print("MARTIN_MODEL_FIT source_height=%.3f scale=%.3f" % [bounds.size.y, factor])
 
-func _collect_bounds(root: Node) -> AABB:
-    var result := AABB()
-    var initialized := false
+func _collect_bounds(root: Node3D) -> AABB:
+    var result: AABB = AABB()
+    var initialized: bool = false
     var stack: Array[Node] = [root]
     while not stack.is_empty():
-        var node := stack.pop_back()
+        var node: Node = stack.pop_back() as Node
         if node is MeshInstance3D:
-            var mesh_node := node as MeshInstance3D
+            var mesh_node: MeshInstance3D = node as MeshInstance3D
             if mesh_node.mesh != null:
-                var local_box := mesh_node.get_aabb()
-                var rel := root.global_transform.affine_inverse() * mesh_node.global_transform
-                var corners := [
+                var local_box: AABB = mesh_node.get_aabb()
+                var rel: Transform3D = root.global_transform.affine_inverse() * mesh_node.global_transform
+                var corners: Array[Vector3] = [
                     local_box.position,
                     local_box.position + Vector3(local_box.size.x, 0, 0),
                     local_box.position + Vector3(0, local_box.size.y, 0),
@@ -156,7 +156,7 @@ func _collect_bounds(root: Node) -> AABB:
                     else:
                         result = result.expand(p)
         for child in node.get_children():
-            stack.push_back(child)
+            stack.push_back(child as Node)
     return result
 
 func _on_state_changed(value: String) -> void:
@@ -195,7 +195,7 @@ func _on_emotion_changed(emotion: String, intensity: float) -> void:
 func _on_action_requested(action: String) -> void:
     if adapter == null:
         return
-    var a := action.to_lower()
+    var a: String = action.to_lower()
     if a in ["dance", "dj", "cheer", "celebrate"]:
         adapter.play_best_animation("happy" if a in ["cheer", "celebrate"] else "dj")
     elif a in ["walk", "run"]:
@@ -218,7 +218,7 @@ func _run_smoke() -> void:
         push_error("MARTIN_PRODUCTION_SMOKE_NO_SKELETON")
         get_tree().quit(2)
         return
-    var caps := adapter.get_capabilities()
+    var caps: Dictionary = adapter.get_capabilities()
     var animations: Array = caps.get("animations", [])
     for test_state in ["idle", "listening", "thinking", "talking", "happy", "dj", "walk", "run"]:
         _on_state_changed(test_state)
