@@ -28,7 +28,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq blender python3-pil python3-numpy
           blender --version | head -n 2
-          blender -b --python-expr 'import numpy; print("BLENDER_NUMPY_OK", numpy.__version__)'
+          timeout 20s blender -b --python-expr 'import numpy,bpy; print("BLENDER_NUMPY_OK", numpy.__version__); bpy.ops.wm.quit_blender()' 2>&1 | tee blender-numpy.log
+          grep -q 'BLENDER_NUMPY_OK' blender-numpy.log
 
       - name: Download verified CC0 rig base
         run: |
@@ -85,11 +86,21 @@ jobs:
           MARTIN_TEXTURE: /tmp/martin-source/martinTex.png
         run: |
           set -euxo pipefail
-          blender -b /tmp/martin-source/CatPilot.blend --python godot-avatar/tools/build_martin_blender.py 2>&1 | tee martin-blender.log
+          timeout 180s blender -b /tmp/martin-source/CatPilot.blend --python godot-avatar/tools/build_martin_blender.py 2>&1 | tee martin-blender.log
           grep -q 'MARTIN_GLB_OK' martin-blender.log
           test -s godot-avatar/models/production/martin.glb
+          test $(stat -c%s godot-avatar/models/production/martin.glb) -gt 100000
           file godot-avatar/models/production/martin.glb
           ls -lh godot-avatar/models/production/martin.glb
+
+      - name: Upload model before branch mutation
+        uses: actions/upload-artifact@v4
+        with:
+          name: martin-production-glb
+          path: |
+            godot-avatar/models/production/martin.glb
+            martin-blender.log
+          if-no-files-found: error
 
       - name: Commit generated production model
         run: |
@@ -99,15 +110,8 @@ jobs:
           git add godot-avatar/models/production/martin.glb
           if git diff --cached --quiet; then
             echo 'No model change to commit'
-          else
-            git commit -m 'Add generated rigged Martin production GLB [skip model-build]'
-            git push origin HEAD:godot-avatar-v1
+            exit 0
           fi
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: martin-production-glb
-          path: |
-            godot-avatar/models/production/martin.glb
-            martin-blender.log
-          if-no-files-found: error
+          git commit -m 'Add generated rigged Martin production GLB [skip model-build]'
+          git pull --rebase origin godot-avatar-v1
+          git push origin HEAD:godot-avatar-v1
