@@ -12,7 +12,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify 3D NPC source tree
+      - name: Verify and patch 3D NPC source tree
         run: |
           set -euxo pipefail
           test -s app/src/main/java/com/imagine/martinhost/Martin3DView.java
@@ -23,6 +23,17 @@ jobs:
           grep -q 'PremiumMainActivity' app/src/main/AndroidManifest.xml
           grep -q 'android.intent.category.LAUNCHER' app/src/main/AndroidManifest.xml
           grep -q 'versionName = "0.5.0-3d-npc"' app/build.gradle.kts
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/imagine/martinhost/Martin3DView.java')
+          s=p.read_text()
+          bad='@Override public void onSurfaceCreated(javax.microedition.khronos.egl.EGLConfig config)'
+          good='@Override public void onSurfaceCreated(javax.microedition.khronos.opengles.GL10 gl, javax.microedition.khronos.egl.EGLConfig config)'
+          if bad in s:
+              s=s.replace(bad,good)
+              p.write_text(s)
+          assert good in p.read_text()
+          PY
           if test -s app/src/main/assets/martin_portrait_valid.b64; then
             mkdir -p app/src/main/res/drawable-nodpi
             base64 -d app/src/main/assets/martin_portrait_valid.b64 > app/src/main/res/drawable-nodpi/martin_idle.jpg
