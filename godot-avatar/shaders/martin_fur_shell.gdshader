@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_alpha_prepass, cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode blend_mix, depth_prepass_alpha, cull_back, diffuse_burley, specular_schlick_ggx;
 
 uniform vec4 fur_color : source_color = vec4(0.22, 0.24, 0.29, 1.0);
 uniform float shell_offset : hint_range(0.0, 0.03) = 0.008;
@@ -32,9 +32,10 @@ void fragment() {
     vec2 uvx = world_pos.yz * strand_density;
     vec2 uvy = world_pos.xz * strand_density;
     vec2 uvz = world_pos.xy * strand_density;
-    float wx = an.x / max(an.x + an.y + an.z, 0.001);
-    float wy = an.y / max(an.x + an.y + an.z, 0.001);
-    float wz = an.z / max(an.x + an.y + an.z, 0.001);
+    float denom = max(an.x + an.y + an.z, 0.001);
+    float wx = an.x / denom;
+    float wy = an.y / denom;
+    float wz = an.z / denom;
     float grain = hash21(floor(uvx)) * wx + hash21(floor(uvy)) * wy + hash21(floor(uvz)) * wz;
     float strand = smoothstep(0.32 + shell_ratio * 0.22, 0.86, grain);
     float root = mix(1.0 - root_darkening, 1.0, shell_ratio);
