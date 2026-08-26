@@ -23,13 +23,16 @@ jobs:
           grep -q 'PremiumMainActivity' app/src/main/AndroidManifest.xml
           grep -q 'android.intent.category.LAUNCHER' app/src/main/AndroidManifest.xml
           grep -q 'versionName = "0.5.0-3d-npc"' app/build.gradle.kts
-          # Launcher icon may be raster; the main NPC may not be.
           if test -s app/src/main/assets/martin_portrait_valid.b64; then
             mkdir -p app/src/main/res/drawable-nodpi
             base64 -d app/src/main/assets/martin_portrait_valid.b64 > app/src/main/res/drawable-nodpi/martin_idle.jpg
             file app/src/main/res/drawable-nodpi/martin_idle.jpg | grep 'JPEG image data'
           fi
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Verify Gradle version
+        run: gradle --version | grep 'Gradle 9.5'
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Validate APK payload
