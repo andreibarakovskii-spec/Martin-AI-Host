@@ -48,15 +48,15 @@ const ANIMATION_ALIASES := {
 func _ready() -> void:
     var root: Node = self
     if not model_root_path.is_empty():
-        root = get_node_or_null(model_root_path)
-        if root == null:
-            root = self
+        var resolved_root: Node = get_node_or_null(model_root_path)
+        if resolved_root != null:
+            root = resolved_root
     if not skeleton_path.is_empty():
-        skeleton = get_node_or_null(skeleton_path)
+        skeleton = get_node_or_null(skeleton_path) as Skeleton3D
     if not face_mesh_path.is_empty():
-        face_mesh = get_node_or_null(face_mesh_path)
+        face_mesh = get_node_or_null(face_mesh_path) as MeshInstance3D
     if not animation_tree_path.is_empty():
-        animation_tree = get_node_or_null(animation_tree_path)
+        animation_tree = get_node_or_null(animation_tree_path) as AnimationTree
     _auto_discover(root)
     _index_blend_shapes()
     print("MARTIN_MODEL_ADAPTER skeleton=%s face=%s morphs=%d animations=%d" % [skeleton != null, face_mesh != null, blendshape_cache.size(), get_animation_names().size()])
@@ -65,10 +65,10 @@ func _auto_discover(root: Node) -> void:
     if root == null:
         return
     var stack: Array[Node] = [root]
-    var best_face: MeshInstance3D
-    var best_morph_count := -1
+    var best_face: MeshInstance3D = null
+    var best_morph_count: int = -1
     while not stack.is_empty():
-        var node: Node = stack.pop_back()
+        var node: Node = stack.pop_back() as Node
         if skeleton == null and node is Skeleton3D:
             skeleton = node as Skeleton3D
         if animation_tree == null and node is AnimationTree:
@@ -76,14 +76,14 @@ func _auto_discover(root: Node) -> void:
         if animation_player == null and node is AnimationPlayer:
             animation_player = node as AnimationPlayer
         if node is MeshInstance3D:
-            var candidate := node as MeshInstance3D
+            var candidate: MeshInstance3D = node as MeshInstance3D
             if candidate.mesh != null:
-                var count := candidate.mesh.get_blend_shape_count()
+                var count: int = candidate.mesh.get_blend_shape_count()
                 if count > best_morph_count:
                     best_morph_count = count
                     best_face = candidate
-        for child in node.get_children():
-            stack.push_back(child)
+        for child_value: Node in node.get_children():
+            stack.push_back(child_value)
     if face_mesh == null and best_face != null and best_morph_count > 0:
         face_mesh = best_face
 
@@ -104,7 +104,7 @@ func get_animation_names() -> Array[String]:
     var result: Array[String] = []
     if animation_player == null:
         return result
-    for item in animation_player.get_animation_list():
+    for item: StringName in animation_player.get_animation_list():
         result.append(String(item))
     return result
 
@@ -112,31 +112,32 @@ func _index_blend_shapes() -> void:
     blendshape_cache.clear()
     if face_mesh == null or face_mesh.mesh == null:
         return
-    for i in range(face_mesh.mesh.get_blend_shape_count()):
+    var blend_count: int = face_mesh.mesh.get_blend_shape_count()
+    for i: int in range(blend_count):
         blendshape_cache[String(face_mesh.mesh.get_blend_shape_name(i))] = i
 
 func set_expression(name: String, weight: float) -> void:
-    var aliases: Array = EXPRESSION_ALIASES.get(name, [name])
+    var aliases: Array = EXPRESSION_ALIASES.get(name, [name]) as Array
     _set_first_available(aliases, weight)
 
 func set_viseme(name: String, weight: float) -> void:
-    var aliases: Array = VISEME_ALIASES.get(name, [name])
+    var aliases: Array = VISEME_ALIASES.get(name, [name]) as Array
     _set_first_available(aliases, weight)
 
 func drive_simple_lipsync(level: float) -> void:
-    var v := clampf(level, 0.0, 1.0)
-    set_viseme("aa", v)
-    set_viseme("oh", v * 0.35)
+    var value: float = clampf(level, 0.0, 1.0)
+    set_viseme("aa", value)
+    set_viseme("oh", value * 0.35)
 
 func clear_face() -> void:
     if face_mesh == null:
         return
-    for index in blendshape_cache.values():
-        face_mesh.set_blend_shape_value(index, 0.0)
+    for index_value: Variant in blendshape_cache.values():
+        face_mesh.set_blend_shape_value(int(index_value), 0.0)
 
 func travel(state_name: String) -> void:
     if animation_tree != null:
-        var playback = animation_tree.get("parameters/playback")
+        var playback: Variant = animation_tree.get("parameters/playback")
         if playback != null and playback.has_method("travel"):
             playback.travel(state_name)
             return
@@ -145,25 +146,25 @@ func travel(state_name: String) -> void:
 func play_best_animation(state_name: String) -> bool:
     if animation_player == null:
         return false
-    var aliases: Array = ANIMATION_ALIASES.get(state_name.to_lower(), [state_name])
-    for alias in aliases:
-        var requested := String(alias)
+    var aliases: Array = ANIMATION_ALIASES.get(state_name.to_lower(), [state_name]) as Array
+    for alias_value: Variant in aliases:
+        var requested: String = String(alias_value)
         if animation_player.has_animation(requested):
             animation_player.play(requested)
             return true
-    var target := state_name.to_lower()
-    for candidate_name in animation_player.get_animation_list():
-        var candidate := String(candidate_name)
-        if candidate.to_lower().contains(target):
-            animation_player.play(candidate)
+    var target: String = state_name.to_lower()
+    for candidate_name: StringName in animation_player.get_animation_list():
+        var candidate_name_string: String = String(candidate_name)
+        if candidate_name_string.to_lower().contains(target):
+            animation_player.play(candidate_name)
             return true
     return false
 
 func _set_first_available(aliases: Array, weight: float) -> void:
     if face_mesh == null:
         return
-    for alias in aliases:
-        var key := String(alias)
+    for alias_value: Variant in aliases:
+        var key: String = String(alias_value)
         if blendshape_cache.has(key):
             face_mesh.set_blend_shape_value(int(blendshape_cache[key]), clampf(weight, 0.0, 1.0))
             return
