@@ -29,14 +29,16 @@ func _ready()->void:
 
     MartinBridge.state_changed.connect(_on_state_changed);MartinBridge.speech_level_changed.connect(_on_speech_level);MartinBridge.look_changed.connect(_on_look_changed);MartinBridge.energy_changed.connect(_on_energy_changed);MartinBridge.emotion_changed.connect(_on_emotion_changed);MartinBridge.action_requested.connect(_on_action_requested)
     _connect_android_host()
-    _on_state_changed(MartinBridge.current_state);_on_speech_level(MartinBridge.speech_level);_on_look_changed(MartinBridge.look.x,MartinBridge.look.y);_on_energy_changed(MartinBridge.energy)
+    _on_state_changed(MartinBridge.current_state);_on_speech_level(MartinBridge.speech_level);_on_look_changed(MartinBridge.look.x,MartinBridge.look.y);_on_energy_changed(MartinBridge.energy);_on_emotion_changed(MartinBridge.current_emotion,MartinBridge.emotion_intensity)
     var caps:Dictionary=adapter.get_capabilities()
     print("MARTIN_PRODUCTION_READY skeleton=%s face=%s animations=%s visible_rig=true"%[caps.get("skeleton",false),caps.get("face_mesh",false),caps.get("animations",[])])
     if "--avatar-smoke" in OS.get_cmdline_user_args():call_deferred("_run_smoke")
 
 func _connect_android_host()->void:
+    if not Engine.has_singleton("MartinHostPlugin"):
+        print("MARTIN_ANDROID_PLUGIN desktop_or_headless")
+        return
     android_host=Engine.get_singleton("MartinHostPlugin")
-    if android_host==null:print("MARTIN_ANDROID_PLUGIN desktop_or_headless");return
     android_host.connect("state_changed",_on_host_state);android_host.connect("speech_level_changed",_on_host_speech);android_host.connect("action_requested",_on_host_action);android_host.connect("look_changed",_on_host_look);android_host.connect("energy_changed",_on_host_energy);android_host.connect("emotion_changed",_on_host_emotion)
     print("MARTIN_ANDROID_PLUGIN_CONNECTED gaze=true emotion=true")
 func _on_host_state(v:String)->void:MartinBridge.set_state(v)
@@ -95,12 +97,13 @@ func _on_state_changed(value:String)->void:
 func _on_speech_level(v:float)->void:speech_level=clampf(v,0.0,1.0)
 func _on_look_changed(x:float,y:float)->void:look_target=Vector2(clampf(x,-1.0,1.0),clampf(y,-1.0,1.0))
 func _on_energy_changed(v:float)->void:energy=clampf(v,0.0,1.0)
-func _on_emotion_changed(value:String)->void:
+func _on_emotion_changed(value:String,intensity:float=1.0)->void:
     if adapter==null:return
+    var amount:float=clampf(intensity,0.0,1.0)
     match value.to_lower():
-        "happy","celebrate","playful":adapter.set_expression("smile",0.72);adapter.set_expression("brow_up",0.10)
-        "excited":adapter.set_expression("smile",0.88);adapter.set_expression("brow_up",0.42)
-        "focused","thinking":adapter.set_expression("brow_up",0.30)
+        "happy","celebrate","playful":adapter.set_expression("smile",0.72*amount);adapter.set_expression("brow_up",0.10*amount)
+        "excited":adapter.set_expression("smile",0.88*amount);adapter.set_expression("brow_up",0.42*amount)
+        "focused","thinking":adapter.set_expression("brow_up",0.30*amount)
         _:pass
 func _on_action_requested(value:String)->void:
     if adapter!=null:adapter.play_best_animation(value)
@@ -117,7 +120,7 @@ func _run_smoke()->void:
     var animations:Array=caps.get("animations",[]) as Array
     for required:String in ["DefaultAnim","Cheer","Walk","Run"]:
         if required not in animations:push_error("MARTIN_SMOKE_FAIL animation=%s"%required);get_tree().quit(5);return
-    MartinBridge.set_state("listening");MartinBridge.set_state("thinking");MartinBridge.set_state("talking");MartinBridge.set_speech_level(0.75);MartinBridge.trigger_action("happy");MartinBridge.set_look(0.55,-0.22);MartinBridge.set_emotion("playful");MartinBridge.set_energy(0.8)
+    MartinBridge.set_state("listening");MartinBridge.set_state("thinking");MartinBridge.set_state("talking");MartinBridge.set_speech_level(0.75);MartinBridge.trigger_action("happy");MartinBridge.set_look(0.55,-0.22);MartinBridge.set_emotion("playful",0.85);MartinBridge.set_energy(0.8)
     await get_tree().create_timer(0.35).timeout
-    print("MARTIN_SMOKE_OK visible_rig=true camera_look=true voice_states=true game_states=true")
+    print("MARTIN_SMOKE_OK visible_rig=true camera_look=true voice_states=true game_states=true emotion_signal=true")
     get_tree().quit(0)

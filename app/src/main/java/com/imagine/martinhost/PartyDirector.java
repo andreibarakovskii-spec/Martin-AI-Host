@@ -81,5 +81,11 @@ public final class PartyDirector {
 
     private static boolean isYes(String s){ return s.contains("да") || s.contains("начина") || s.contains("поехали") || s.contains("готов"); }
     private static boolean isCorrect(String s,String answer){ return s.contains(answer); }
-    private static String cleanupName(String s){ return s.replaceAll("(?i)это|я|ответил|ответила|угадал|угадала", "").trim(); }
+    private static String cleanupName(String s){
+        if (s == null) return "";
+        return s.replaceAll("(?iu)\\b(?:это|я|ответил|ответила|сказал|сказала|угадал|угадала|был|была)\\b", "")
+                .replaceAll("^[\\s,.:;!?—-]+|[\\s,.:;!?—-]+$", "")
+                .replaceAll("\\s{2,}", " ")
+                .trim();
+    }
 }

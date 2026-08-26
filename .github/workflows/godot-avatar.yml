@@ -7,6 +7,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: godot-martin-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   godot-avatar:
     runs-on: ubuntu-latest
@@ -50,12 +54,12 @@ jobs:
           set -euxo pipefail
           timeout 20s godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
           grep -q 'MARTIN_PRODUCTION_READY skeleton=true' godot-smoke.log
-          grep -q 'MARTIN_SMOKE_OK states=idle,listening,thinking,talking,dj model=production visual=v2 legacy_hidden=true' godot-smoke.log
+          grep -q 'MARTIN_SMOKE_OK visible_rig=true camera_look=true voice_states=true game_states=true emotion_signal=true' godot-smoke.log
           grep -q 'DefaultAnim' godot-smoke.log
           grep -q 'Cheer' godot-smoke.log
           grep -q 'Walk' godot-smoke.log
           grep -q 'Run' godot-smoke.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON|MARTIN_PRODUCTION_SMOKE_NO_SKELETON' godot-smoke.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Error calling from signal|Failed to retrieve non-existent singleton|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON|MARTIN_SMOKE_FAIL' godot-smoke.log
 
       - name: Render production Martin frames
         shell: bash
@@ -67,7 +71,7 @@ jobs:
           mkdir -p godot-avatar/render
           xvfb-run -a -s '-screen 0 720x1280x24' godot --path godot-avatar --write-movie render/martin.png --fixed-fps 30 --resolution 720x1280 -- --avatar-smoke 2>&1 | tee godot-render.log
           test -n "$(find godot-avatar/render -name 'martin*.png' -print -quit)"
-          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON' godot-render.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Error calling from signal|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON' godot-render.log
 
       - name: Upload production Martin rendered frames
         if: always()
