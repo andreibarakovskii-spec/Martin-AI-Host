@@ -73,7 +73,7 @@ func _mat(color: Color, roughness: float, metallic: float, specular: float) -> S
     m.albedo_color = color
     m.roughness = roughness
     m.metallic = metallic
-    m.specular = specular
+    m.metallic_specular = specular
     return m
 
 func _build_character() -> void:
