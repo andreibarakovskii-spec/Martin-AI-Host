@@ -1,11 +1,13 @@
 extends Node3D
 
 const MODEL_PATH := "res://models/production/martin.glb"
+const MARTIN_V2_VISUAL := preload("res://scripts/MartinV2Visual.gd")
 
 @onready var model_mount: Node3D = $ModelMount
 @onready var camera: Camera3D = $Camera3D
 
 var model_instance: Node3D
+var visual_v2: Node3D
 var adapter: AvatarModelAdapter
 var current_state := "idle"
 var speech_level := 0.0
@@ -22,13 +24,20 @@ func _ready() -> void:
         push_error("MARTIN_PRODUCTION_MODEL_MISSING %s" % MODEL_PATH)
         return
 
+    # Keep the proven Cat Pilot rig/animations as an invisible compatibility rig.
+    # Martin v2 is the actual rendered character.
     model_instance = packed.instantiate() as Node3D
     if model_instance == null:
         push_error("MARTIN_PRODUCTION_MODEL_INVALID")
         return
-    model_instance.name = "MartinModel"
+    model_instance.name = "MartinCompatibilityRig"
     model_mount.add_child(model_instance)
     _fit_model_to_stage()
+    _hide_source_meshes(model_instance)
+
+    visual_v2 = MARTIN_V2_VISUAL.new() as Node3D
+    visual_v2.name = "MartinV2"
+    model_mount.add_child(visual_v2)
 
     adapter = AvatarModelAdapter.new()
     adapter.name = "AvatarModelAdapter"
@@ -54,7 +63,7 @@ func _ready() -> void:
     _on_energy_changed(MartinBridge.energy)
 
     var caps: Dictionary = adapter.get_capabilities()
-    print("MARTIN_PRODUCTION_READY skeleton=%s face=%s animations=%s morphs=%s" % [
+    print("MARTIN_PRODUCTION_READY skeleton=%s face=%s animations=%s morphs=%s visual=v2" % [
         caps.get("skeleton", false),
         caps.get("face_mesh", false),
         caps.get("animations", []),
@@ -63,6 +72,12 @@ func _ready() -> void:
 
     if "--avatar-smoke" in OS.get_cmdline_user_args():
         call_deferred("_run_smoke")
+
+func _hide_source_meshes(root: Node) -> void:
+    if root is MeshInstance3D:
+        (root as MeshInstance3D).visible = false
+    for child in root.get_children():
+        _hide_source_meshes(child)
 
 func _connect_android_host() -> void:
     android_host = Engine.get_singleton("MartinHostPlugin")
@@ -93,19 +108,18 @@ func _process(delta: float) -> void:
     elapsed += delta
     blink_clock += delta
 
-    # Small performance motion only; no old full-body vertical bobbing.
-    var idle_sway: float = sin(elapsed * 1.35) * 0.007
+    var idle_sway: float = sin(elapsed * 1.35) * 0.006
     var performance_sway: float = 0.0
     if current_state == "talking":
-        performance_sway = sin(elapsed * 7.0) * (0.004 + speech_level * 0.010)
+        performance_sway = sin(elapsed * 6.0) * (0.003 + speech_level * 0.006)
     elif current_state == "dj":
-        performance_sway = sin(elapsed * 4.2) * 0.018
-    model_mount.rotation.z = lerpf(model_mount.rotation.z, idle_sway + performance_sway, minf(1.0, delta * 5.0))
+        performance_sway = sin(elapsed * 3.6) * 0.012
+    model_mount.rotation.z = lerpf(model_mount.rotation.z, idle_sway + performance_sway, minf(1.0, delta * 4.2))
 
-    var target_pitch: float = look_target.y * 0.025
-    var target_yaw: float = look_target.x * 0.045
-    model_mount.rotation.x = lerpf(model_mount.rotation.x, target_pitch, minf(1.0, delta * 4.0))
-    model_mount.rotation.y = lerpf(model_mount.rotation.y, target_yaw, minf(1.0, delta * 4.0))
+    var target_pitch: float = look_target.y * 0.022
+    var target_yaw: float = look_target.x * 0.040
+    model_mount.rotation.x = lerpf(model_mount.rotation.x, target_pitch, minf(1.0, delta * 3.8))
+    model_mount.rotation.y = lerpf(model_mount.rotation.y, target_yaw, minf(1.0, delta * 3.8))
 
     if adapter != null:
         if current_state == "talking":
@@ -227,6 +241,6 @@ func _run_smoke() -> void:
         await get_tree().create_timer(0.12).timeout
     _on_speech_level(0.0)
     _on_state_changed("idle")
-    print("MARTIN_PRODUCTION_SMOKE_OK skeleton=true animations=%d model=%s" % [animations.size(), MODEL_PATH])
+    print("MARTIN_PRODUCTION_SMOKE_OK skeleton=true animations=%d model=%s visual=v2" % [animations.size(), MODEL_PATH])
     await get_tree().create_timer(0.8).timeout
     get_tree().quit()
