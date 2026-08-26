@@ -26,7 +26,6 @@ func _ready() -> void:
         return
 
     # Keep the proven Cat Pilot skeleton/animations strictly as an invisible compatibility rig.
-    # The wrapper remains hidden even when legacy animation tracks toggle child mesh visibility.
     compatibility_container = Node3D.new()
     compatibility_container.name = "CompatibilityRigHidden"
     model_mount.add_child(compatibility_container)
@@ -38,7 +37,7 @@ func _ready() -> void:
     model_instance.name = "MartinCompatibilityRig"
     compatibility_container.add_child(model_instance)
     _fit_model_to_stage()
-    _hide_source_meshes(model_instance)
+    _disable_source_rendering(model_instance)
     compatibility_container.visible = false
 
     visual_v2 = MARTIN_V2_VISUAL.new() as Node3D
@@ -80,11 +79,22 @@ func _ready() -> void:
     if "--avatar-smoke" in OS.get_cmdline_user_args():
         call_deferred("_run_smoke")
 
-func _hide_source_meshes(root: Node) -> void:
+func _disable_source_rendering(root: Node) -> void:
     if root is MeshInstance3D:
-        (root as MeshInstance3D).visible = false
+        var mesh_node := root as MeshInstance3D
+        mesh_node.visible = false
+        mesh_node.layers = 0
+        mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     for child in root.get_children():
-        _hide_source_meshes(child)
+        _disable_source_rendering(child)
+
+func _lock_source_rendering(root: Node) -> void:
+    if root is MeshInstance3D:
+        var mesh_node := root as MeshInstance3D
+        mesh_node.visible = false
+        mesh_node.layers = 0
+    for child in root.get_children():
+        _lock_source_rendering(child)
 
 func _connect_android_host() -> void:
     android_host = Engine.get_singleton("MartinHostPlugin")
@@ -112,9 +122,10 @@ func _on_host_look(x: float, y: float) -> void:
 func _process(delta: float) -> void:
     if model_instance == null:
         return
-    # Legacy visibility tracks are allowed to animate internally, but the wrapper is always hidden.
-    if compatibility_container != null and compatibility_container.visible:
+    # Legacy animation tracks may try to restore mesh visibility. Keep every legacy mesh outside all render layers.
+    if compatibility_container != null:
         compatibility_container.visible = false
+    _lock_source_rendering(model_instance)
 
     elapsed += delta
     blink_clock += delta
