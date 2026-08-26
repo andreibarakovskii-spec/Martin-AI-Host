@@ -10,8 +10,8 @@ android {
         applicationId = "com.imagine.martinhost.fixed"
         minSdk = 31
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.5.0-3d-npc"
+        versionCode = 6
+        versionName = "0.6.0-concept-1to1"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
