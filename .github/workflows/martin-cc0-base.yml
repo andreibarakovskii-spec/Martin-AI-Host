@@ -17,10 +17,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Blender
+      - name: Install Blender headless runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y blender
+          sudo apt-get install -y blender libegl1 libgl1 libglx-mesa0 libglu1-mesa mesa-utils
           blender --version
 
       - name: Download CC0 humanoid cat base
@@ -32,6 +32,9 @@ jobs:
           ls -lh /tmp/cat.blend
 
       - name: Render candidate
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          EGL_PLATFORM: surfaceless
         run: |
           mkdir -p martin-cc0-preview
           blender -b /tmp/cat.blend \
