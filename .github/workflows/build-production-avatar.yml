@@ -26,8 +26,9 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq blender python3-pil
+          sudo apt-get install -y -qq blender python3-pil python3-numpy
           blender --version | head -n 2
+          blender -b --python-expr 'import numpy; print("BLENDER_NUMPY_OK", numpy.__version__)'
 
       - name: Download verified CC0 rig base
         run: |
@@ -57,17 +58,14 @@ jobs:
                       continue
                   rf,gf,bf=r/255,g/255,b/255
                   h,s,v=colorsys.rgb_to_hsv(rf,gf,bf)
-                  # Keep neutral grey fur, whites and soft pink facial details.
                   is_neutral=s < 0.18
                   is_pink=(r > g*1.25 and r > b*1.10 and v > .45 and s < .65)
                   if not is_neutral and not is_pink:
-                      # Pilot clothing/accessories -> black hoodie/charcoal with preserved shading.
                       lum=0.2126*rf+0.7152*gf+0.0722*bf
                       base=12 + int(lum*34)
                       violet = 8 if (h > .63 and h < .88) else 0
                       px[x,y]=(base+violet, base, min(58,base+10+violet), a)
                   elif is_neutral:
-                      # Cooler silver-grey fur, retain source detail.
                       lum=0.2126*rf+0.7152*gf+0.0722*bf
                       if lum < .22:
                           q=int(lum*255)
