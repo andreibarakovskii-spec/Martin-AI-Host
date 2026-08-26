@@ -1,7 +1,8 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/MartinProduction.gd" id="1_runtime"]
 [ext_resource type="Script" path="res://scripts/FurShellController.gd" id="2_fur"]
+[ext_resource type="Script" path="res://scripts/SurfacePolish.gd" id="3_polish"]
 
 [sub_resource type="Environment" id="Environment_martin"]
 background_mode = 1
@@ -38,13 +39,17 @@ environment = SubResource("Environment_martin")
 
 [node name="ModelMount" type="Node3D" parent="."]
 
+[node name="SurfacePolish" type="Node" parent="."]
+script = ExtResource("3_polish")
+model_root_path = NodePath("../ModelMount")
+
 [node name="FurShellController" type="Node" parent="."]
 script = ExtResource("2_fur")
 model_root_path = NodePath("../ModelMount")
 shell_count = 3
-max_fur_length = 0.011
-base_alpha = 0.21
-fur_color = Color(0.20, 0.22, 0.27, 1)
+max_fur_length = 0.009
+base_alpha = 0.18
+fur_color = Color(0.24, 0.25, 0.29, 1)
 
 [node name="Floor" type="MeshInstance3D" parent="."]
 position = Vector3(0, 0, 0)
@@ -57,30 +62,30 @@ mesh = SubResource("HaloMesh")
 
 [node name="KeyLight" type="DirectionalLight3D" parent="."]
 rotation_degrees = Vector3(-38, -32, 0)
-light_color = Color(0.92, 0.93, 1, 1)
-light_energy = 0.62
+light_color = Color(0.96, 0.94, 0.90, 1)
+light_energy = 0.72
 shadow_enabled = true
-shadow_bias = 0.035
+shadow_bias = 0.028
 
 [node name="FillLight" type="OmniLight3D" parent="."]
 position = Vector3(-1.45, 1.62, 2.15)
-light_color = Color(0.30, 0.24, 0.78, 1)
-light_energy = 0.70
+light_color = Color(0.34, 0.30, 0.66, 1)
+light_energy = 0.48
 omni_range = 4.2
 
 [node name="RimLight" type="OmniLight3D" parent="."]
 position = Vector3(1.35, 2.05, -0.82)
-light_color = Color(0.62, 0.22, 0.88, 1)
-light_energy = 1.02
+light_color = Color(0.86, 0.50, 0.22, 1)
+light_energy = 0.92
 omni_range = 3.9
 
 [node name="FaceFill" type="OmniLight3D" parent="."]
 position = Vector3(0.15, 1.62, 2.55)
-light_color = Color(1, 0.83, 0.72, 1)
-light_energy = 0.28
+light_color = Color(1, 0.87, 0.76, 1)
+light_energy = 0.38
 omni_range = 2.4
 
 [node name="Camera3D" type="Camera3D" parent="."]
-position = Vector3(0, 1.42, 4.25)
-fov = 35.0
+position = Vector3(0, 1.44, 4.45)
+fov = 38.0
 current = true
