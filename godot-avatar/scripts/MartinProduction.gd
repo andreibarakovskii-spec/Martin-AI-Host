@@ -14,6 +14,7 @@ var energy := 0.5
 var elapsed := 0.0
 var blink_clock := 0.0
 var next_blink := 3.2
+var android_host
 
 func _ready() -> void:
     var packed := load(MODEL_PATH) as PackedScene
@@ -27,9 +28,6 @@ func _ready() -> void:
         return
     model_instance.name = "MartinModel"
     model_mount.add_child(model_instance)
-
-    # Normalize the imported avatar into a predictable 2.55 m presentation height
-    # and center it in front of the camera without changing the authored rig.
     _fit_model_to_stage()
 
     adapter = AvatarModelAdapter.new()
@@ -48,6 +46,7 @@ func _ready() -> void:
     MartinBridge.energy_changed.connect(_on_energy_changed)
     MartinBridge.emotion_changed.connect(_on_emotion_changed)
     MartinBridge.action_requested.connect(_on_action_requested)
+    _connect_android_host()
 
     _on_state_changed(MartinBridge.current_state)
     _on_speech_level(MartinBridge.speech_level)
@@ -62,21 +61,46 @@ func _ready() -> void:
         caps.get("blend_shapes", []),
     ])
 
+    if "--avatar-smoke" in OS.get_cmdline_user_args():
+        call_deferred("_run_smoke")
+
+func _connect_android_host() -> void:
+    android_host = Engine.get_singleton("MartinHostPlugin")
+    if android_host == null:
+        print("MARTIN_ANDROID_PLUGIN desktop_or_headless")
+        return
+    android_host.connect("state_changed", _on_host_state)
+    android_host.connect("speech_level_changed", _on_host_speech)
+    android_host.connect("action_requested", _on_host_action)
+    android_host.connect("look_changed", _on_host_look)
+    print("MARTIN_ANDROID_PLUGIN_CONNECTED")
+
+func _on_host_state(value: String) -> void:
+    MartinBridge.set_state(value)
+
+func _on_host_speech(value: float) -> void:
+    MartinBridge.set_speech_level(value)
+
+func _on_host_action(value: String) -> void:
+    MartinBridge.trigger_action(value)
+
+func _on_host_look(x: float, y: float) -> void:
+    MartinBridge.set_look(x, y)
+
 func _process(delta: float) -> void:
     if model_instance == null:
         return
     elapsed += delta
     blink_clock += delta
 
-    # Tiny procedural performance is layered over authored animation. It is intentionally
-    # restrained so Martin looks alive rather than floating up/down like the old portrait.
+    # Small performance motion only; no old full-body vertical bobbing.
     var idle_sway := sin(elapsed * 1.35) * 0.007
-    var talk_sway := 0.0
+    var performance_sway := 0.0
     if current_state == "talking":
-        talk_sway = sin(elapsed * 7.0) * speech_level * 0.012
+        performance_sway = sin(elapsed * 7.0) * (0.004 + speech_level * 0.010)
     elif current_state == "dj":
-        talk_sway = sin(elapsed * 4.2) * 0.018
-    model_mount.rotation.z = lerpf(model_mount.rotation.z, idle_sway + talk_sway, minf(1.0, delta * 5.0))
+        performance_sway = sin(elapsed * 4.2) * 0.018
+    model_mount.rotation.z = lerpf(model_mount.rotation.z, idle_sway + performance_sway, minf(1.0, delta * 5.0))
 
     var target_pitch := look_target.y * 0.025
     var target_yaw := look_target.x * 0.045
@@ -94,11 +118,11 @@ func _process(delta: float) -> void:
 func _fit_model_to_stage() -> void:
     var bounds := _collect_bounds(model_instance)
     if bounds.size.y <= 0.001:
+        push_error("MARTIN_PRODUCTION_EMPTY_BOUNDS")
         return
     var desired_height := 2.55
     var factor := desired_height / bounds.size.y
     model_instance.scale = Vector3.ONE * factor
-    # Recalculate center after scale from source bounds. Root transform remains clean for animations.
     var center := bounds.position + bounds.size * 0.5
     model_instance.position = Vector3(-center.x * factor, -bounds.position.y * factor, -center.z * factor)
     print("MARTIN_MODEL_FIT source_height=%.3f scale=%.3f" % [bounds.size.y, factor])
@@ -113,8 +137,6 @@ func _collect_bounds(root: Node) -> AABB:
             var mesh_node := node as MeshInstance3D
             if mesh_node.mesh != null:
                 var local_box := mesh_node.get_aabb()
-                # GLB meshes are normally children of the imported root. Transform their corners
-                # into root-local space so multi-part production avatars also fit correctly.
                 var rel := root.global_transform.affine_inverse() * mesh_node.global_transform
                 var corners := [
                     local_box.position,
@@ -189,3 +211,22 @@ func _blink() -> void:
             adapter.set_expression("blink_l", 0.0)
             adapter.set_expression("blink_r", 0.0)
     )
+
+func _run_smoke() -> void:
+    await get_tree().process_frame
+    if adapter == null or not adapter.is_production_model_ready():
+        push_error("MARTIN_PRODUCTION_SMOKE_NO_SKELETON")
+        get_tree().quit(2)
+        return
+    var caps := adapter.get_capabilities()
+    var animations: Array = caps.get("animations", [])
+    for test_state in ["idle", "listening", "thinking", "talking", "happy", "dj", "walk", "run"]:
+        _on_state_changed(test_state)
+        if test_state == "talking":
+            _on_speech_level(0.72)
+        await get_tree().create_timer(0.12).timeout
+    _on_speech_level(0.0)
+    _on_state_changed("idle")
+    print("MARTIN_PRODUCTION_SMOKE_OK skeleton=true animations=%d model=%s" % [animations.size(), MODEL_PATH])
+    await get_tree().create_timer(0.8).timeout
+    get_tree().quit()

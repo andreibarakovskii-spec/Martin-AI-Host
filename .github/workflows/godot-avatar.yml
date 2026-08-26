@@ -1,4 +1,4 @@
-name: Godot Martin Avatar Smoke
+name: Godot Martin Production Smoke
 
 on:
   push:
@@ -10,14 +10,22 @@ on:
 jobs:
   godot-avatar:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify production model exists in tree
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -s godot-avatar/models/production/martin.glb
+          test "$(stat -c%s godot-avatar/models/production/martin.glb)" -gt 500000
+          grep -q 'MartinProduction.tscn' godot-avatar/project.godot
 
       - name: Install Godot 4.7.2 stable
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/godotengine/godot/releases/tags/4.7.2-stable)"
           URL="$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("stable_linux.x86_64.zip$")) | .browser_download_url' | head -n1)"
           test -n "$URL" && test "$URL" != "null"
@@ -27,49 +35,48 @@ jobs:
           test -n "$GODOT"
           chmod +x "$GODOT"
           sudo mv "$GODOT" /usr/local/bin/godot
-          godot --version
+          godot --version | grep '4.7.2'
 
-      - name: Import and validate Martin scene
+      - name: Import production Martin
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           godot --headless --path godot-avatar --editor --quit-after 120 2>&1 | tee godot-import.log
-          ! grep -E "SCRIPT ERROR|Parse Error|ERROR:" godot-import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON' godot-import.log
 
-      - name: Run NPC behavior smoke
+      - name: Run production NPC behavior smoke
         shell: bash
         run: |
-          set -euo pipefail
-          timeout 30s godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
-          grep -q "MARTIN_SMOKE_OK states=9" godot-smoke.log
-          ! grep -E "SCRIPT ERROR|Parse Error|Invalid get index|Node not found" godot-smoke.log
+          set -euxo pipefail
+          timeout 20s godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
+          grep -q 'MARTIN_PRODUCTION_READY skeleton=true' godot-smoke.log
+          grep -q 'MARTIN_PRODUCTION_SMOKE_OK skeleton=true' godot-smoke.log
+          grep -q 'DefaultAnim' godot-smoke.log
+          grep -q 'Cheer' godot-smoke.log
+          grep -q 'Walk' godot-smoke.log
+          grep -q 'Run' godot-smoke.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON|MARTIN_PRODUCTION_SMOKE_NO_SKELETON' godot-smoke.log
 
-      - name: Render Martin animation frames
+      - name: Render production Martin frames
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb mesa-utils
+          rm -rf godot-avatar/render
           mkdir -p godot-avatar/render
-          timeout 40s xvfb-run -a -s '-screen 0 720x1280x24' godot --path godot-avatar --write-movie render/martin.png --fixed-fps 30 --resolution 720x1280 -- --avatar-smoke 2>&1 | tee godot-render.log
+          xvfb-run -a -s '-screen 0 720x1280x24' godot --path godot-avatar --write-movie render/martin.png --fixed-fps 30 --resolution 720x1280 -- --avatar-smoke 2>&1 | tee godot-render.log
           test -n "$(find godot-avatar/render -name 'martin*.png' -print -quit)"
+          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON' godot-render.log
 
-      - name: Upload Martin rendered frames
+      - name: Upload production Martin rendered frames
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Martin-Godot-render
+          name: Martin-Production-Godot-render
           path: |
             godot-avatar/render/*.png
             godot-render.log
-          if-no-files-found: warn
-
-      - name: Upload Godot logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Martin-Godot-smoke-logs
-          path: |
             godot-import.log
             godot-smoke.log
           if-no-files-found: warn

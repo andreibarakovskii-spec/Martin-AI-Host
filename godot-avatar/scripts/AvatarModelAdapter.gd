@@ -1,8 +1,7 @@
 class_name AvatarModelAdapter
 extends Node
 
-## Adapter between Martin's AI behaviour and a production GLB/VRM character.
-## Explicit NodePaths are optional: production models are auto-discovered.
+## Adapter between Martin's AI behaviour and the production GLB/VRM character.
 
 @export var model_root_path: NodePath
 @export var skeleton_path: NodePath
@@ -24,42 +23,47 @@ const VISEME_ALIASES := {
 }
 
 const EXPRESSION_ALIASES := {
-    "blink_l": ["eyeBlinkLeft", "eyesClosed", "blinkLeft", "EyesClosed", "Blink"],
-    "blink_r": ["eyeBlinkRight", "eyesClosed", "blinkRight", "EyesClosed", "Blink"],
+    "blink_l": ["eyeBlinkLeft", "eyesClosed", "blinkLeft"],
+    "blink_r": ["eyeBlinkRight", "eyesClosed", "blinkRight"],
     "smile": ["mouthSmile", "mouthSmileLeft", "mouthSmileRight"],
     "brow_up": ["browInnerUp", "browOuterUpLeft", "browOuterUpRight"],
 }
 
-## These aliases include the exact action names verified in the CC0 Cat Pilot source.
-## Default/DefaultAnim are used as the neutral loop; Cheer is the expressive party motion.
+# The CC0 Cat Pilot base ships these authored clips: DefaultAnim, Default, Cheer,
+# Walk, Run, PutOnGoggles and others. Map AI states to those real clip names first.
 const ANIMATION_ALIASES := {
-    "idle": ["idle", "Idle", "standing", "Standing", "Default", "DefaultAnim"],
-    "listening": ["listening", "listen", "Idle", "idle", "Default", "DefaultAnim"],
-    "thinking": ["thinking", "think", "Idle", "idle", "Default", "DefaultAnim"],
-    "talking": ["talking", "talk", "cheering", "Cheering", "Default", "DefaultAnim"],
-    "happy": ["happy", "cheering", "Cheering", "Cheer", "celebrate", "Default"],
-    "game": ["game", "Cheer", "cheering", "Cheering", "Default"],
-    "toast": ["toast", "Cheer", "cheering", "Cheering", "Default"],
-    "dj": ["dj", "dance", "Dance", "Cheer", "cheering", "Cheering", "Default"],
-    "dance": ["dance", "Dance", "Cheer", "cheering", "Cheering", "Default"],
-    "walk": ["walk", "walking", "Walking", "Walk"],
-    "run": ["run", "running", "Running", "Run"],
+    "idle": ["DefaultAnim", "Default", "idle", "Idle", "standing", "Standing"],
+    "listening": ["DefaultAnim", "Default", "listening", "listen", "Idle", "idle"],
+    "thinking": ["DefaultAnim", "Default", "thinking", "think", "Idle", "idle"],
+    "talking": ["Cheer", "DefaultAnim", "talking", "talk", "cheering", "Cheering", "Idle", "idle"],
+    "happy": ["Cheer", "DefaultAnim", "happy", "cheering", "Cheering", "celebrate", "Idle", "idle"],
+    "game": ["Cheer", "DefaultAnim", "game", "cheering", "Cheering", "Idle", "idle"],
+    "toast": ["Cheer", "DefaultAnim", "toast", "cheering", "Cheering", "Idle", "idle"],
+    "dj": ["Cheer", "DefaultAnim", "dj", "dance", "Dance", "cheering", "Cheering", "Idle", "idle"],
+    "dance": ["Cheer", "DefaultAnim", "dance", "Dance", "cheering", "Cheering", "Idle", "idle"],
+    "walk": ["Walk", "walk", "walking", "Walking"],
+    "run": ["Run", "run", "running", "Running"],
 }
 
 func _ready() -> void:
     var root: Node = self
     if not model_root_path.is_empty():
         root = get_node_or_null(model_root_path)
-        if root == null: root = self
-    if not skeleton_path.is_empty(): skeleton = get_node_or_null(skeleton_path)
-    if not face_mesh_path.is_empty(): face_mesh = get_node_or_null(face_mesh_path)
-    if not animation_tree_path.is_empty(): animation_tree = get_node_or_null(animation_tree_path)
+        if root == null:
+            root = self
+    if not skeleton_path.is_empty():
+        skeleton = get_node_or_null(skeleton_path)
+    if not face_mesh_path.is_empty():
+        face_mesh = get_node_or_null(face_mesh_path)
+    if not animation_tree_path.is_empty():
+        animation_tree = get_node_or_null(animation_tree_path)
     _auto_discover(root)
     _index_blend_shapes()
     print("MARTIN_MODEL_ADAPTER skeleton=%s face=%s morphs=%d animations=%d" % [skeleton != null, face_mesh != null, blendshape_cache.size(), get_animation_names().size()])
 
 func _auto_discover(root: Node) -> void:
-    if root == null: return
+    if root == null:
+        return
     var stack: Array[Node] = [root]
     var best_face: MeshInstance3D
     var best_morph_count := -1
@@ -84,7 +88,7 @@ func _auto_discover(root: Node) -> void:
         face_mesh = best_face
 
 func is_production_model_ready() -> bool:
-    return skeleton != null
+    return skeleton != null and animation_player != null
 
 func get_capabilities() -> Dictionary:
     return {
@@ -98,14 +102,16 @@ func get_capabilities() -> Dictionary:
 
 func get_animation_names() -> Array[String]:
     var result: Array[String] = []
-    if animation_player == null: return result
+    if animation_player == null:
+        return result
     for item in animation_player.get_animation_list():
         result.append(String(item))
     return result
 
 func _index_blend_shapes() -> void:
     blendshape_cache.clear()
-    if face_mesh == null or face_mesh.mesh == null: return
+    if face_mesh == null or face_mesh.mesh == null:
+        return
     for i in range(face_mesh.mesh.get_blend_shape_count()):
         blendshape_cache[String(face_mesh.mesh.get_blend_shape_name(i))] = i
 
@@ -123,7 +129,8 @@ func drive_simple_lipsync(level: float) -> void:
     set_viseme("oh", v * 0.35)
 
 func clear_face() -> void:
-    if face_mesh == null: return
+    if face_mesh == null:
+        return
     for index in blendshape_cache.values():
         face_mesh.set_blend_shape_value(index, 0.0)
 
@@ -136,7 +143,8 @@ func travel(state_name: String) -> void:
     play_best_animation(state_name)
 
 func play_best_animation(state_name: String) -> bool:
-    if animation_player == null: return false
+    if animation_player == null:
+        return false
     var aliases: Array = ANIMATION_ALIASES.get(state_name.to_lower(), [state_name])
     for alias in aliases:
         var requested := String(alias)
@@ -152,7 +160,8 @@ func play_best_animation(state_name: String) -> bool:
     return false
 
 func _set_first_available(aliases: Array, weight: float) -> void:
-    if face_mesh == null: return
+    if face_mesh == null:
+        return
     for alias in aliases:
         var key := String(alias)
         if blendshape_cache.has(key):

@@ -1,6 +1,6 @@
 [application]
 config/name="Martin Avatar Runtime"
-run/main_scene="res://scenes/MartinAvatar.tscn"
+run/main_scene="res://scenes/MartinProduction.tscn"
 
 [display]
 window/size/viewport_width=720
