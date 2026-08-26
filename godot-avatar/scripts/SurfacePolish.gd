@@ -30,23 +30,23 @@ func _polish_mesh(mi: MeshInstance3D) -> void:
             if _has_any(lname, ["eye", "iris", "pupil", "cornea"]):
                 sm.roughness = 0.08
                 sm.metallic = 0.0
-                sm.specular = 0.92
+                sm.metallic_specular = 0.92
                 sm.clearcoat_enabled = true
                 sm.clearcoat = 0.55
                 sm.clearcoat_roughness = 0.06
             elif _has_any(lname, ["nose", "muzzle", "snout"]):
                 sm.roughness = 0.46
-                sm.specular = 0.52
+                sm.metallic_specular = 0.52
             elif _has_any(lname, ["fur", "head", "ear", "tail", "paw", "hand"]):
                 sm.roughness = 0.88
-                sm.specular = 0.18
+                sm.metallic_specular = 0.18
             elif _has_any(lname, ["metal", "buckle", "button", "headphone", "mic"]):
                 sm.metallic = 0.72
                 sm.roughness = 0.26
-                sm.specular = 0.72
+                sm.metallic_specular = 0.72
             else:
                 sm.roughness = clampf(sm.roughness + 0.10, 0.38, 0.90)
-                sm.specular = minf(sm.specular, 0.34)
+                sm.metallic_specular = minf(sm.metallic_specular, 0.34)
             mi.set_surface_override_material(surface, sm)
 
 func _has_any(value: String, tokens: Array[String]) -> bool:
