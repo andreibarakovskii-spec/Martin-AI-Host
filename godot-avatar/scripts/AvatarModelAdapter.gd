@@ -128,7 +128,7 @@ func drive_simple_lipsync(level:float) -> void:
 func set_eye_look(x:float,y:float) -> void:
     var yaw:float = clampf(x,-1.0,1.0)*0.16
     var pitch:float = clampf(y,-1.0,1.0)*0.12
-    var q:=Quaternion(Vector3(pitch,yaw,0.0))
+    var q:Quaternion = Quaternion.from_euler(Vector3(pitch,yaw,0.0))
     for name:String in ["Eye.L","Eye.R"]:
         var idx:int = int(bone_cache.get(name,-1))
         if idx >= 0: skeleton.set_bone_pose_rotation(idx,q)
@@ -177,7 +177,7 @@ func _set_first_available(aliases:Array,weight:float) -> bool:
 func _set_jaw(open_amount:float) -> void:
     if skeleton == null: return
     var idx:int = int(bone_cache.get("Jaw",-1))
-    if idx >= 0: skeleton.set_bone_pose_rotation(idx,Quaternion(Vector3(clampf(open_amount,0.0,0.30),0.0,0.0)))
+    if idx >= 0: skeleton.set_bone_pose_rotation(idx,Quaternion.from_euler(Vector3(clampf(open_amount,0.0,0.30),0.0,0.0)))
 
 func _set_lid(name:String,amount:float) -> void:
     if skeleton == null: return
@@ -191,5 +191,5 @@ func _set_ear_perk(amount:float) -> void:
     var a:float = clampf(amount,0.0,1.0)*0.08
     var l:int = int(bone_cache.get("Ear.L",-1))
     var r:int = int(bone_cache.get("Ear.R",-1))
-    if l >= 0: skeleton.set_bone_pose_rotation(l,Quaternion(Vector3(0.0,0.0,-a)))
-    if r >= 0: skeleton.set_bone_pose_rotation(r,Quaternion(Vector3(0.0,0.0,a)))
+    if l >= 0: skeleton.set_bone_pose_rotation(l,Quaternion.from_euler(Vector3(0.0,0.0,-a)))
+    if r >= 0: skeleton.set_bone_pose_rotation(r,Quaternion.from_euler(Vector3(0.0,0.0,a)))
