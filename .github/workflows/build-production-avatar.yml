@@ -8,6 +8,12 @@ on:
       - 'godot-avatar/tools/build_martin_blender.py'
       - 'godot-avatar/THIRD_PARTY_ASSETS.md'
       - '.github/workflows/build-production-avatar.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'godot-avatar/tools/build_martin_blender.py'
+      - 'godot-avatar/THIRD_PARTY_ASSETS.md'
+      - '.github/workflows/build-production-avatar.yml'
 
 permissions:
   contents: write
@@ -62,6 +68,7 @@ jobs:
           if-no-files-found: error
 
       - name: Commit generated production model
+        if: github.event_name == 'push'
         run: |
           set -euxo pipefail
           git config user.name 'github-actions[bot]'
