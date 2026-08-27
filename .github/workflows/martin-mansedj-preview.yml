@@ -1,5 +1,6 @@
 name: Martin Mansedj CC0 Preview
 
+# Candidate refresh: 2026-08-27
 on:
   push:
     branches: [godot-avatar-v1]
