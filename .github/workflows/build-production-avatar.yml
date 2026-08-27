@@ -22,120 +22,43 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Blender
+      - name: Install Blender headless runtime
         run: |
           set -euxo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq blender python3-pil python3-numpy
+          sudo apt-get install -y -qq blender libegl1 libgl1 libglx-mesa0 libglu1-mesa
           blender --version | head -n 2
-          timeout 20s blender -b --python-expr 'import numpy,bpy; print("BLENDER_NUMPY_OK", numpy.__version__); bpy.ops.wm.quit_blender()' 2>&1 | tee blender-numpy.log
-          grep -q 'BLENDER_NUMPY_OK' blender-numpy.log
 
-      - name: Download verified CC0 rig base
-        run: |
-          set -euxo pipefail
-          mkdir -p /tmp/martin-source
-          curl -fL 'https://opengameart.org/sites/default/files/CatPilot.blend' -o /tmp/martin-source/CatPilot.blend
-          curl -fL 'https://opengameart.org/sites/default/files/catPilotTex.png' -o /tmp/martin-source/catPilotTex.png
-          test -s /tmp/martin-source/CatPilot.blend
-          test -s /tmp/martin-source/catPilotTex.png
-          file /tmp/martin-source/CatPilot.blend
-          file /tmp/martin-source/catPilotTex.png | grep PNG
-
-      - name: Rework diffuse texture to Martin palette
-        run: |
-          set -euxo pipefail
-          python3 - <<'PY'
-          from PIL import Image, ImageEnhance
-          import colorsys, math
-          src='/tmp/martin-source/catPilotTex.png'
-          out='/tmp/martin-source/martinTex.png'
-          im=Image.open(src).convert('RGBA')
-          px=im.load()
-          W,H=im.size
-          for y in range(H):
-              for x in range(W):
-                  r,g,b,a=px[x,y]
-                  if a == 0:
-                      continue
-                  rf,gf,bf=r/255,g/255,b/255
-                  h,s,v=colorsys.rgb_to_hsv(rf,gf,bf)
-                  lum=0.2126*rf+0.7152*gf+0.0722*bf
-                  is_neutral=s < 0.18
-                  is_pink=(r > g*1.25 and r > b*1.10 and v > .45 and s < .65)
-                  if is_pink:
-                      # Keep the warm nose/paw details.
-                      px[x,y]=(min(255,int(r*1.03)), min(190,int(g*.92)), min(205,int(b*.96)), a)
-                  elif is_neutral:
-                      # Mid-grey fur and deep neutral clothing instead of the previous near-white result.
-                      if lum < .22:
-                          q=max(4,min(48,int(lum*175)))
-                      else:
-                          q=max(58,min(158,int(42 + lum*112)))
-                      px[x,y]=(max(0,q-5), q, min(168,q+9), a)
-                  else:
-                      # Suppress saturated pilot colours into a black/navy party-host palette.
-                      base=10 + int(lum*30)
-                      violet = 7 if .63 < h < .88 else 0
-                      px[x,y]=(min(56,base+violet), base, min(66,base+10+violet), a)
-
-          # Flatten bright metallic/buttons/seams on the main jacket UV island so it reads as
-          # a simple black top rather than the original decorated pilot coat.
-          for y in range(0, int(H*.48)):
-              for x in range(0, int(W*.34)):
-                  r,g,b,a=px[x,y]
-                  if a == 0:
-                      continue
-                  mx,mn=max(r,g,b),min(r,g,b)
-                  if mx > 58 and mx-mn < 34:
-                      q=max(16,min(42,int((r+g+b)/3*.42)))
-                      px[x,y]=(q,q,min(52,q+6),a)
-
-          # The source uses one mirrored eye UV. Repaint only the authored central iris oval green,
-          # preserving the white sclera and tiny white highlight.
-          cx,cy=W*.0905,H*.6565
-          rx,ry=W*.0168,H*.0215
-          for y in range(max(0,int(cy-ry)), min(H,int(cy+ry)+1)):
-              for x in range(max(0,int(cx-rx)), min(W,int(cx+rx)+1)):
-                  d=((x-cx)/rx)**2 + ((y-cy)/ry)**2
-                  if d > 1.0:
-                      continue
-                  r,g,b,a=px[x,y]
-                  if a == 0:
-                      continue
-                  lum=(r+g+b)/3
-                  if lum > 105 and max(r,g,b)-min(r,g,b) < 65:
-                      edge=max(0.0,min(1.0,1.0-d))
-                      px[x,y]=(18+int(18*edge), 150+int(72*edge), 58+int(38*edge), a)
-
-          im=ImageEnhance.Contrast(im).enhance(1.05)
-          im.save(out,optimize=True)
-          print('MARTIN_TEXTURE_OK', im.size, out)
-          PY
-          file /tmp/martin-source/martinTex.png | grep PNG
-
-      - name: Build rigged Martin GLB
+      - name: Generate Martin v2 rig, materials and animations
         env:
           MARTIN_OUT: ${{ github.workspace }}/godot-avatar/models/production/martin.glb
-          MARTIN_TEXTURE: /tmp/martin-source/martinTex.png
+          MARTIN_PREVIEW: ${{ github.workspace }}/martin-v2-preview.png
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          EGL_PLATFORM: surfaceless
         run: |
           set -euxo pipefail
-          timeout 180s blender -b /tmp/martin-source/CatPilot.blend --python godot-avatar/tools/build_martin_blender.py 2>&1 | tee martin-blender.log
-          grep -q 'MARTIN_GLB_OK' martin-blender.log
-          grep -q 'MARTIN_PART_REMOVED.*Goggles' martin-blender.log
+          timeout 240s blender -b --factory-startup --python godot-avatar/tools/build_martin_blender.py 2>&1 | tee martin-blender.log
+          grep -q 'MARTIN_V2_RIG' martin-blender.log
+          grep -q 'MARTIN_V2_GLB_OK' martin-blender.log
+          grep -q 'MARTIN_ACTION DefaultAnim' martin-blender.log
+          grep -q 'MARTIN_ACTION Cheer' martin-blender.log
+          grep -q 'MARTIN_ACTION Walk' martin-blender.log
+          grep -q 'MARTIN_ACTION Run' martin-blender.log
           test -s godot-avatar/models/production/martin.glb
-          test $(stat -c%s godot-avatar/models/production/martin.glb) -gt 100000
+          test "$(stat -c%s godot-avatar/models/production/martin.glb)" -gt 200000
+          test -s martin-v2-preview.png
           file godot-avatar/models/production/martin.glb
-          ls -lh godot-avatar/models/production/martin.glb
+          file martin-v2-preview.png | grep PNG
+          ls -lh godot-avatar/models/production/martin.glb martin-v2-preview.png
 
-      - name: Upload model before branch mutation
+      - name: Upload generated model and preview before branch mutation
         uses: actions/upload-artifact@v4
         with:
-          name: martin-production-glb
+          name: martin-v2-production
           path: |
             godot-avatar/models/production/martin.glb
+            martin-v2-preview.png
             martin-blender.log
-            /tmp/martin-source/martinTex.png
           if-no-files-found: error
 
       - name: Commit generated production model
@@ -148,6 +71,6 @@ jobs:
             echo 'No model change to commit'
             exit 0
           fi
-          git commit -m 'Add refined rigged Martin production GLB [skip model-build]'
+          git commit -m 'Generate Martin v2 procedural production GLB [skip model-build]'
           git pull --rebase origin godot-avatar-v1
           git push origin HEAD:godot-avatar-v1
