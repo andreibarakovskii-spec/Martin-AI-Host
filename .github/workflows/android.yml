@@ -19,10 +19,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: signing
         with:
           path: ~/.android/debug.keystore
-          key: martin-debug-signing-v1
+          key: martin-diagnostics-signing-v1
       - name: Unit tests and build
         run: gradle :app:testDebugUnitTest :app:assembleDebug -PdiagnosticCopy=true --stacktrace
       - name: Check APK
@@ -32,6 +33,12 @@ jobs:
           unzip -t "$APK"
           if unzip -l "$APK" | grep -E 'libgodot|martin.glb|MartinProduction'; then exit 1; fi
           sha256sum "$APK" > apk-sha256.txt
+      - name: Preserve diagnostic signing key
+        if: steps.signing.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: martin-diagnostics-signing-v1
       - uses: actions/upload-artifact@v4
         with:
           name: Martin-Dialogue-Test-0.9.1-APK
