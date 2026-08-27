@@ -68,7 +68,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
      play(pcm.pcm16,pcm.sampleRate,token,audioFile)
     }
     withContext(Dispatchers.Main){if(token==generation.get()&&!closed){listener.onLevel(0f);listener.onDone()}}
-   }catch(e:Exception){withContext(Dispatchers.Main){if(token==generation.get()&&!closed)listener.onError("Ошибка синтеза: ${e.javaClass.simpleName}. Текст ответа доступен на экране.")}}
+   }catch(e:Exception){DiagnosticRecorder.get(app).event("tts_error",e.javaClass.simpleName);withContext(Dispatchers.Main){if(token==generation.get()&&!closed)listener.onError("Ошибка синтеза: ${e.javaClass.simpleName}. Текст ответа доступен на экране.")}}
   }
  }
  private suspend fun play(pcm:ByteArray,rate:Int,token:Int,audioFile:String){

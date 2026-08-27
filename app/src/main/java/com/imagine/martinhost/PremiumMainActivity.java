@@ -82,6 +82,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
             @Override public void onLevel(float rms, float noise, boolean speech) {
                 runOnUiThread(() -> {
+                    if(active){String label=DiagnosticRecorder.get(PremiumMainActivity.this).active()?"● СЛУШАЮ • ЗАПИСЬ ЛОГА":"● СЛУШАЮ";if(!mic.getText().toString().equals(label))mic.setText(label);}
                     if (turns.acceptMicForStt()) {
                         float level = Math.max(0f, Math.min(1f, (rms + 48f) / 36f));
                         setVoiceLevel(level);

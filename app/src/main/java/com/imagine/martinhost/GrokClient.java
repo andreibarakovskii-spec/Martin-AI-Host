@@ -25,12 +25,13 @@ public final class GrokClient {
   messages.put(new JSONObject().put("role","user").put("content",userContent));
   boolean groq=provider.equals("groq");String model=p.getString(groq?"groq_model":"xai_model",groq?"openai/gpt-oss-120b":"grok-4.6");
   if(jpeg!=null&&groq)model=p.getString("vision_model","qwen/qwen3.6-27b");
+  DiagnosticRecorder.get(context).event("ai_model",provider+";model="+model);
   c=(HttpURLConnection)new URL(groq?"https://api.groq.com/openai/v1/chat/completions":"https://api.x.ai/v1/chat/completions").openConnection();connection=c;
   c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(12000);c.setReadTimeout(40000);c.setRequestProperty("Authorization","Bearer "+key);c.setRequestProperty("Content-Type","application/json");
   JSONObject body=new JSONObject().put("model",model).put("messages",messages).put("stream",false);
   if(groq)body.put("max_completion_tokens",700);else body.put("max_tokens",700);
   try(OutputStream os=c.getOutputStream()){os.write(body.toString().getBytes(StandardCharsets.UTF_8));}
-  int code=c.getResponseCode();if(code<200||code>=300)throw new IOException("AI: HTTP "+code+". Проверьте ключ, модель, лимит и сеть.");
+  int code=c.getResponseCode();DiagnosticRecorder.get(context).event("ai_http",String.valueOf(code));if(code<200||code>=300)throw new IOException("AI: HTTP "+code+". Проверьте ключ, модель, лимит и сеть.");
   String raw;try(InputStream in=c.getInputStream()){raw=new String(in.readAllBytes(),StandardCharsets.UTF_8);}
   String text=new JSONObject(raw).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content","").trim();
   if(text.isEmpty())throw new IOException("AI вернул пустой ответ");if(token!=generation)return;

@@ -53,6 +53,7 @@ public final class GroqTranscriber {
                     out.write(("\r\n--"+boundary+"--\r\n").getBytes(StandardCharsets.UTF_8));
                 }
                 int code = c.getResponseCode();
+                DiagnosticRecorder.get(context).event("stt_http",String.valueOf(code));
                 InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
                 String raw = is == null ? "" : new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 if (code < 200 || code >= 300) throw new IllegalStateException("Whisper API " + code + ": " + raw);
