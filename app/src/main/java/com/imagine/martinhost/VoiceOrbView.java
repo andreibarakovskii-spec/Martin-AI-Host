@@ -22,6 +22,8 @@ public final class VoiceOrbView extends View {
     private float targetLevel = 0f;
     private float level = 0f;
     private float energy = .55f;
+    private float[] spectrum;
+    public void setSpectrum(float[] values){spectrum=values.clone();postInvalidateOnAnimation();}
     private String state = "idle";
     private String emotion = "neutral";
     private long startedNs = System.nanoTime();
@@ -49,6 +51,7 @@ public final class VoiceOrbView extends View {
 
     public void setState(String value) {
         state = value == null ? "idle" : value;
+        if(!state.equals("talking")) spectrum=null;
         postInvalidateOnAnimation();
     }
 
@@ -94,8 +97,8 @@ public final class VoiceOrbView extends View {
             canvas.drawCircle(cx, cy, r, stroke);
         }
 
-        // Circular equalizer: deterministic pseudo-spectrum so it stays smooth even
-        // when the audio callback updates at a lower rate than display refresh.
+        // Circular spectrum from audible TTS PCM. Listening uses its RMS envelope;
+        // thinking is an explicitly animated state, not simulated speech.
         int bars = 72;
         float inner = pulse * 1.34f;
         bar.setStrokeWidth(Math.max(2f, min * .0062f));
@@ -106,7 +109,7 @@ public final class VoiceOrbView extends View {
                     + .26f * (float)Math.sin(i * .61f + now * 4.0f)
                     + .18f * (float)Math.sin(i * .23f - now * 2.6f);
             float amp = Math.max(.10f, harmonic) * (.20f + active * 1.10f);
-            if (state.equals("talking")) amp *= 1.18f;
+            if (state.equals("talking")) amp = spectrum==null ? active*.4f : spectrum[(i*24/bars)%spectrum.length]*1.5f;
             if (state.equals("thinking")) amp = .24f + .20f * (float)Math.sin(i * .35f + now * 3.2f);
             float len = pulse * (.10f + amp * .38f);
             float x1 = cx + (float)Math.cos(a) * inner;

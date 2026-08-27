@@ -38,9 +38,9 @@ public final class PremiumMainActivity extends FragmentActivity {
     private VoiceOrbView voiceOrb;
     private TextView state, heard, reply, aiDot, voiceDot, cameraDot, subline;
     private Button mic;
-    private boolean active, neuralReady, destroyed, cameraEnabled;
+    private boolean active, neuralReady, destroyed, cameraEnabled, pendingAudioStart;
     private volatile boolean faceVisible;
-    private int session;
+    private volatile int session;
     private String pendingClip;
     private TextView cameraHelp;
     private String queuedSpeech;
@@ -112,6 +112,7 @@ public final class PremiumMainActivity extends FragmentActivity {
                 state.setText("Говорю…");
             }); }
             @Override public void onLevel(float level) { runOnUiThread(() -> setVoiceLevel(level)); }
+            @Override public void onSpectrum(float[] bands) { runOnUiThread(() -> voiceOrb.setSpectrum(bands)); }
             @Override public void onDone() { runOnUiThread(() -> {
                 setVoiceLevel(0f);
                 setVisualState(active ? "listening" : "idle");
@@ -253,9 +254,10 @@ public final class PremiumMainActivity extends FragmentActivity {
         root.addView(nav, new LinearLayout.LayoutParams(-1, dp(66)));
 
         setContentView(root);
-        menu.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        menu.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setTitle("Ведущий")
+            .setItems(new String[]{"Приветствие","Тост для Кати","Закончить конкурс","Очистить память диалога"},(d,w)->{cancelCurrent();if(w==2)runDirectorAction(director.cancel());else if(w==3){grok.clearHistory();turns.forceListen();reply.setText("История диалога очищена");}else handleTranscript(w==0?"Поздоровайся с Катей и гостями, предложи начать праздник":"тост для Кати");}).show());
         gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        mic.setOnClickListener(v -> { if (active) stopAudio(); else startAudio(); });
+        mic.setOnClickListener(v -> { if (active || queuedSpeech!=null || (turns!=null && turns.state()!=TurnManager.State.LISTENING)) stopAudio(); else startAudio(); });
         setVisualState("idle");
     }
 
@@ -391,6 +393,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
     private void startAudio() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingAudioStart=true;
             requestPerms();
             return;
         }
@@ -464,7 +467,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         if (r == REQ) {
             startFaceTrackerIfAllowed();
             refreshStatus();
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED && !cameraEnabled) startAudio();
+            if (pendingAudioStart){pendingAudioStart=false;if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startAudio();}
         }
     }
 
@@ -486,7 +489,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         super.onDestroy();
     }
 
-    private void cancelCurrent(){session++;queuedSpeech=null;pendingClip=null;if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
+    private void cancelCurrent(){session++;PartyMusic.get(this).stopClip();queuedSpeech=null;pendingClip=null;if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
     @Override protected void onPause(){super.onPause();if(audio!=null)stopAudio();if(faceTracker!=null)faceTracker.stop();}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleIntent(i);}
     private void handleIntent(Intent i){if(i!=null&&i.hasExtra("game_id")){String id=i.getStringExtra("game_id");i.removeExtra("game_id");cancelCurrent();runDirectorAction(director.startGame(id));}}

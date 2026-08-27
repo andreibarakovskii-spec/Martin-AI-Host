@@ -29,6 +29,7 @@ public final class MainActivity extends Activity {
             public void onPreparing(String m){runOnUiThread(()->{voiceDot.setText("● голос");voiceDot.setTextColor(0xFFFFA84D);});}
             public void onReady(){runOnUiThread(()->{neuralReady=true;voiceDot.setText("● голос");voiceDot.setTextColor(0xFF56E39F);});}
             public void onStart(){runOnUiThread(()->{martin.setState(MartinSpriteView.State.TALKING);state.setText("Говорю…");});}
+            public void onSpectrum(float[] bands){}
             public void onLevel(float level){runOnUiThread(()->martin.setSpeechLevel(level));}
             public void onDone(){runOnUiThread(()->finishSpeech());}
             public void onError(String message){runOnUiThread(()->{neuralReady=false;voiceDot.setText("● голос");voiceDot.setTextColor(0xFFFF6B6B);state.setText("Установи модель голоса в настройках");turns.onAiSpeechDone();});}

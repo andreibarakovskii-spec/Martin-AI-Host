@@ -52,7 +52,7 @@ public final class SettingsActivity extends Activity {
         root.addView(testAi);
 
         root.addView(tv("ГОЛОС МАРТИНА", 13, 0xFF8B5CF6));
-        voiceStatus = tv("Нейроголос Supertonic хранится локально на телефоне. Системный голос не используется как основной.", 14, 0xFFB8BFCC);
+        voiceStatus = tv("Нейроголос Supertonic хранится локально на телефоне. Загрузка около 380 МБ. Кнопка ниже произнесёт проверочную фразу. Системный голос не подставляется незаметно.", 14, 0xFFB8BFCC);
         root.addView(voiceStatus);
         voiceButton = btn("⬇ СКАЧАТЬ / ПРОВЕРИТЬ МОДЕЛЬ ГОЛОСА");
         voiceButton.setOnClickListener(v -> downloadVoiceModel());
@@ -139,11 +139,12 @@ public final class SettingsActivity extends Activity {
                 voiceButton.setText("✓ МОДЕЛЬ ГОЛОСА ГОТОВА");
                 voiceButton.setEnabled(true);
                 prefs.edit().putBoolean("voice_model_ready", true).apply();
-                if (voiceLoader != null) { voiceLoader.close(); voiceLoader = null; }
+                if (voiceLoader != null) voiceLoader.speak("Привет, Катя! С днём рождения. Я Мартин, ваш AI-ведущий. Сегодня мы будем смеяться, играть и танцевать.");
             }); }
-            public void onStart() {}
+            public void onStart() {runOnUiThread(()->voiceStatus.setText("Проверка: слушайте голос"));}
             public void onLevel(float level) {}
-            public void onDone() {}
+            public void onSpectrum(float[] bands) {}
+            public void onDone() {runOnUiThread(()->{voiceStatus.setText("Проверочная фраза воспроизведена. Оцените голос на телефоне.");if(voiceLoader!=null){voiceLoader.close();voiceLoader=null;}});}
             public void onError(String message) { runOnUiThread(() -> {
                 voiceStatus.setText("❌ " + message);
                 voiceButton.setText("↻ ПОВТОРИТЬ ЗАГРУЗКУ");

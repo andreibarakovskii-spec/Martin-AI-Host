@@ -1,0 +1,7 @@
+package com.imagine.martinhost;
+import org.junit.Test;import static org.junit.Assert.*;import java.util.*;
+public class PartyDirectorTest {
+ @Test public void waitsForReadyAndFinalAnswerThenScoresOnce(){List<String> scores=new ArrayList<>();PartyDirector d=new PartyDirector(scores::add);d.startChgk();assertEquals(PartyDirector.Mode.RULES,d.mode());d.onUserText("не сейчас");assertEquals(PartyDirector.Mode.RULES,d.mode());d.onUserText("начинаем");assertEquals(PartyDirector.Mode.WAIT_ANSWER,d.mode());d.onUserText("может яма");assertEquals(PartyDirector.Mode.WAIT_ANSWER,d.mode());d.onUserText("ответ яма");assertEquals(PartyDirector.Mode.WAIT_NAME,d.mode());d.onUserText("Катя");assertEquals(Arrays.asList("Катя"),scores);d.onUserText("Катя");assertEquals(1,scores.size());}
+ @Test public void cancelReturnsToChatAndCannotAward(){List<String> s=new ArrayList<>();PartyDirector d=new PartyDirector(s::add);d.startGame("expert");d.next();d.cancel();d.award();assertTrue(s.isEmpty());assertEquals(PartyDirector.Mode.FREE,d.mode());assertTrue(d.onUserText("привет").askAi);}
+ @Test public void revealDoesNotAwardAndRoundsEnd(){List<String> s=new ArrayList<>();PartyDirector d=new PartyDirector(s::add);d.startChgk();for(int i=0;i<6;i++){d.next();d.reveal();}d.next();assertEquals(PartyDirector.Mode.FREE,d.mode());assertTrue(s.isEmpty());}
+}

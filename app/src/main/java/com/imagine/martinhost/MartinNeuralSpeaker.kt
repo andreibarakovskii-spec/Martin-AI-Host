@@ -15,6 +15,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   fun onReady()
   fun onStart()
   fun onLevel(level: Float)
+  fun onSpectrum(bands: FloatArray)
   fun onDone()
   fun onError(message: String)
  }
@@ -81,7 +82,8 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
     offset+=n
     val audible=((t.playbackHeadPosition.toLong() and 0xffffffffL)*2).toInt().coerceIn(0,pcm.size-2)
     val level=rms(pcm,audible,minOf(2048,pcm.size-audible))
-    withContext(Dispatchers.Main){if(token==generation.get())listener.onLevel(level)}
+    val bands=spectrum(pcm,audible,rate)
+    withContext(Dispatchers.Main){if(token==generation.get()){listener.onLevel(level);listener.onSpectrum(bands)}}
    }
    // Writing completion is not playback completion: drain the device buffer first.
    val frames=pcm.size/2L
@@ -91,6 +93,20 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
     delay(15)
    }
   }finally{if(track===t)track=null;try{t.stop()}catch(_:Exception){};t.release()}
+ }
+ private fun spectrum(pcm:ByteArray,offset:Int,rate:Int):FloatArray {
+  val size=minOf(512,(pcm.size-offset)/2)
+  if(size<2)return FloatArray(24)
+  return FloatArray(24){b->
+   val frequency=90.0*Math.pow(60.0,b/23.0)
+   val k=(.5+size*frequency/rate).toInt().coerceIn(1,size/2)
+   val coefficient=2*kotlin.math.cos(2*Math.PI*k/size)
+   var q1=0.0;var q2=0.0
+   for(i in 0 until size){val p=offset+2*i;val value=((pcm[p+1].toInt() shl 8) or (pcm[p].toInt() and 255)).toShort()/32768.0
+    val q=value*(.5-.5*kotlin.math.cos(2*Math.PI*i/(size-1)))+coefficient*q1-q2;q2=q1;q1=q}
+   val power=kotlin.math.sqrt(kotlin.math.max(0.0,q1*q1+q2*q2-coefficient*q1*q2))/size
+   (kotlin.math.ln(1+power*100)/3).toFloat().coerceIn(0f,1f)
+  }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
  fun stop(){generation.incrementAndGet();engine?.stop();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}

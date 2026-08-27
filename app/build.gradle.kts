@@ -13,6 +13,10 @@ android {
         versionCode = 90
         versionName = "0.9.0-voice-party"
     }
+    sourceSets.getByName("main") {
+        assets.exclude("martin*")
+        res.exclude("drawable-nodpi/*.jpg")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

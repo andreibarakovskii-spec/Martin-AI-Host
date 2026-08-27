@@ -12,6 +12,8 @@ public final class PartyDirector {
   public static Action local(String s,String st,String g,String e){return new Action(s,st,g,e,false);}
   public static Action ai(String s,String st,String g,String e){return new Action(s,st,g,e,true);}
  }
+ interface ScoreSink {void add(String name);}
+ private final ScoreSink scoreSink;
  private final GuestStore guests;
  private final Context context;
  private Mode mode=Mode.FREE;
@@ -20,7 +22,8 @@ public final class PartyDirector {
  private int index=-1,score=0;
  private String musicUri;
  private final List<PartyMusic.Track> musicRounds=new ArrayList<>();
- public PartyDirector(Context c){context=c.getApplicationContext();guests=new GuestStore(c);}
+ public PartyDirector(Context c){context=c.getApplicationContext();guests=new GuestStore(c);scoreSink=name->{if(!guests.addScore(name,1)){List<GuestStore.Guest> all=guests.load();GuestStore.Guest g=new GuestStore.Guest();g.name=name;g.callName=name;g.score=1;g.participated=1;all.add(g);guests.save(all);}};}
+ PartyDirector(ScoreSink sink){context=null;guests=null;scoreSink=sink;}
  public Mode mode(){return mode;}
  public String summary(){return game==null?"Свободный диалог":game.title+" • раунд "+Math.max(0,index+1)+" • верных: "+score;}
  public String takeMusicUri(){String s=musicUri;musicUri=null;return s;}
@@ -78,9 +81,7 @@ public final class PartyDirector {
    if(l.equals("без имени")){mode=Mode.RESULT;return local("Оставляю балл в счёте раунда без записи гостю. Скажите «дальше».");}
    String name=t.replaceFirst("(?iu)^(это|я|ответил|ответила)\\s+","").replaceAll("[.!?,]$","").trim();
    if(name.length()<2||name.length()>45)return local("Назовите короткое имя или название команды.");
-   if(!guests.addScore(name,1)){
-    List<GuestStore.Guest> all=guests.load();GuestStore.Guest g=new GuestStore.Guest();g.name=name;g.callName=name;g.score=1;g.participated=1;all.add(g);guests.save(all);
-   }
+   scoreSink.add(name);
    mode=Mode.RESULT;return local(name+", один балл записан. Скажите «дальше».");
   }
   if(mode==Mode.RESULT)return local("Раунд завершён. Скажите «дальше» или «закончить игру».");
