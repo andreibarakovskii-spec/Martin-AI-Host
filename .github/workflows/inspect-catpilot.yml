@@ -1,6 +1,11 @@
 name: Inspect CC0 Cat Pilot base
 
 on:
+  push:
+    branches: [ godot-avatar-v1 ]
+    paths:
+      - 'godot-avatar/tools/inspect_catpilot.py'
+      - '.github/workflows/inspect-catpilot.yml'
   pull_request:
     branches: [ main ]
     paths:
