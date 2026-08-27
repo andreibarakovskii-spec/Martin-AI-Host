@@ -1,17 +1,17 @@
 # Martin AI Host
 
-Android AI-тамада для домашнего дня рождения Кати, 35 лет.
+Party-ready Android host built around an embedded Godot 4.7.2 rigged 3D character.
 
-Концепция: один Android-смартфон + Bluetooth-колонка + голосовой AI-ведущий Martin на базе Grok. Гости взаимодействуют только голосом, без экранов и установки приложений.
+## Production MVP
 
-## MVP
-- wake phrase «Мартин»;
-- офлайн-распознавание речи Android;
-- ответы Grok;
-- озвучка через Android TTS;
-- системный вывод звука на Bluetooth-колонку;
-- пауза / стоп / следующая игра;
-- блокировка распознавания во время озвучки, чтобы AI не слушал сам себя;
-- отдельная память гостей и хода вечера будет добавлена следующим этапом.
+- real rigged GLB rendered by `GodotFragment` (no 2D portrait on the launcher)
+- idle/listening/thinking/talking/happy/game/DJ states and animation actions
+- continuous 16 kHz microphone capture with adaptive VAD + 700 ms pre-roll
+- Android acoustic echo cancellation / noise suppression when supported
+- on-device neural Russian TTS (Supertonic via Soniqo)
+- Groq Whisper transcription + Groq/Grok host dialogue
+- local-only front-camera face tracking: camera frames are not saved or uploaded; only normalized gaze coordinates reach Godot
+- one complete voice-first game wired into the main host: «Что? Где? Когда?» with natural spoken answers and score attribution
+- Bluetooth-friendly party audio routing
 
-Проект полностью отдельный от LiveLingo. Оттуда берётся только архитектурная идея распознавания и озвучки, сам репозиторий LiveLingo не изменяется.
+The visible model is intentionally isolated behind `godot-avatar/models/production/martin.glb`: a better licensed rigged cat can replace this GLB later without changing camera/audio/game logic.

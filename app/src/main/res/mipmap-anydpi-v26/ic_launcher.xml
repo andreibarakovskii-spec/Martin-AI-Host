@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Martin AI Host adaptive launcher icon -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/martin_icon_bg" />
+    <foreground android:drawable="@drawable/ic_martin_foreground" />
+    <monochrome android:drawable="@drawable/ic_martin_foreground" />
+</adaptive-icon>

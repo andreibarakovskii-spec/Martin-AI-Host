@@ -1,0 +1,59 @@
+name: Martin CC0 Base Preview
+
+on:
+  push:
+    branches: [godot-avatar-v1]
+    paths:
+      - '.github/workflows/martin-cc0-base.yml'
+      - 'godot-avatar/tools/render_mansedj_candidate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Blender headless runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender libegl1 libgl1 libglx-mesa0 libglu1-mesa mesa-utils unzip file
+          blender --version
+
+      - name: Download public-domain rig pack
+        run: |
+          curl -L --fail --retry 3 \
+            'https://www.dropbox.com/sh/j7850no0g8fg2s9/AABSpxWS1vJg0cLdTktptJ5Oa?dl=1' \
+            -o /tmp/kitsunzoro.zip
+          test -s /tmp/kitsunzoro.zip
+          file /tmp/kitsunzoro.zip
+          mkdir -p /tmp/kitsunzoro
+          unzip -o /tmp/kitsunzoro.zip -d /tmp/kitsunzoro
+          echo '--- candidate blend files ---'
+          find /tmp/kitsunzoro -type f -iname '*.blend' -print | head -n 50
+          BLEND_FILE="$(find /tmp/kitsunzoro -type f -iname '*cat*.blend' | head -n 1)"
+          if [ -z "$BLEND_FILE" ]; then BLEND_FILE="$(find /tmp/kitsunzoro -type f -iname '*.blend' | head -n 1)"; fi
+          test -n "$BLEND_FILE"
+          echo "BLEND_FILE=$BLEND_FILE" >> "$GITHUB_ENV"
+          echo "Using $BLEND_FILE"
+
+      - name: Render rigged cat candidate
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          EGL_PLATFORM: surfaceless
+        run: |
+          mkdir -p martin-cc0-preview
+          blender -b "$BLEND_FILE" \
+            -P godot-avatar/tools/render_mansedj_candidate.py \
+            -- --output-dir "$GITHUB_WORKSPACE/martin-cc0-preview"
+          ls -lh martin-cc0-preview
+
+      - name: Upload candidate render
+        uses: actions/upload-artifact@v4
+        with:
+          name: Martin-CC0-base-preview
+          path: martin-cc0-preview/*.png
+          if-no-files-found: error

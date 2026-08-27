@@ -1,0 +1,29 @@
+{
+  "license_policy": "CC0 production assets only",
+  "target_library": "Quaternius Universal Animation Library / UAL2",
+  "android_strategy": "Import only selected clips; exclude unused source animations from export",
+  "states": {
+    "idle": ["Idle", "Idle_2", "Idle_3"],
+    "listening": ["Idle", "Interact"],
+    "thinking": ["Idle", "LookAround"],
+    "talking": ["Idle_Talking", "Talking", "Interact"],
+    "happy": ["Cheering", "Happy"],
+    "game": ["Interact", "Talking", "Pointing"],
+    "toast": ["Interact", "Cheering"],
+    "dj": ["Dance", "Dance_2"],
+    "dance": ["Dance", "Dance_2", "Dance_3"]
+  },
+  "procedural_layers": [
+    "blink",
+    "look_at",
+    "ear_reaction",
+    "tail_idle",
+    "speech_visemes"
+  ],
+  "acceptance": {
+    "required_states": ["idle", "listening", "talking", "happy", "game", "toast", "dj", "dance"],
+    "target_fps_android": 30,
+    "max_character_triangles": 25000,
+    "preferred_texture_size": 1024
+  }
+}
