@@ -9,6 +9,7 @@ on:
       - 'godot-avatar/tools/build_martin_v21.py'
       - 'godot-avatar/tools/build_martin_v22.py'
       - 'godot-avatar/tools/build_martin_v23.py'
+      - 'godot-avatar/tools/build_martin_v24.py'
       - 'godot-avatar/THIRD_PARTY_ASSETS.md'
       - '.github/workflows/build-production-avatar.yml'
   pull_request:
@@ -18,6 +19,7 @@ on:
       - 'godot-avatar/tools/build_martin_v21.py'
       - 'godot-avatar/tools/build_martin_v22.py'
       - 'godot-avatar/tools/build_martin_v23.py'
+      - 'godot-avatar/tools/build_martin_v24.py'
       - 'godot-avatar/THIRD_PARTY_ASSETS.md'
       - '.github/workflows/build-production-avatar.yml'
 
@@ -43,37 +45,49 @@ jobs:
           timeout 20s blender -b --python-expr 'import numpy,bpy; print("BLENDER_NUMPY_OK", numpy.__version__); bpy.ops.wm.quit_blender()' 2>&1 | tee blender-numpy.log
           grep -q 'BLENDER_NUMPY_OK' blender-numpy.log
 
-      - name: Generate Martin v2.3 reference-matched rig, geometry, materials and animations
+      - name: Download CC0 Cat Pilot rig source
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 'https://opengameart.org/sites/default/files/CatPilot.blend' -o /tmp/CatPilot.blend
+          test "$(stat -c%s /tmp/CatPilot.blend)" -gt 5000000
+          file /tmp/CatPilot.blend | grep Blender3D
+          sha256sum /tmp/CatPilot.blend | tee catpilot-source.sha256
+
+      - name: Generate Martin v2.4 continuous reference-matched NPC
         env:
           MARTIN_OUT: ${{ github.workspace }}/godot-avatar/models/production/martin.glb
-          MARTIN_PREVIEW: ${{ github.workspace }}/martin-v23-preview.png
+          MARTIN_PREVIEW: ${{ github.workspace }}/martin-v24-preview.png
           LIBGL_ALWAYS_SOFTWARE: '1'
           EGL_PLATFORM: surfaceless
         run: |
           set -euxo pipefail
-          timeout 300s blender -b --factory-startup --python godot-avatar/tools/build_martin_v23.py 2>&1 | tee martin-blender.log
-          grep -q 'MARTIN_V23_RIG' martin-blender.log
-          grep -q 'MARTIN_V23_GLB_OK' martin-blender.log
-          grep -q 'MARTIN_V23_PREVIEW_OK' martin-blender.log
-          grep -q 'MARTIN_ACTION DefaultAnim' martin-blender.log
-          grep -q 'MARTIN_ACTION Cheer' martin-blender.log
-          grep -q 'MARTIN_ACTION Walk' martin-blender.log
-          grep -q 'MARTIN_ACTION Run' martin-blender.log
+          timeout 360s blender -b /tmp/CatPilot.blend --python godot-avatar/tools/build_martin_v24.py 2>&1 | tee martin-blender.log
+          grep -q 'MARTIN_V24_RIG' martin-blender.log
+          grep -q 'MARTIN_V24_GLB_OK' martin-blender.log
+          grep -q 'MARTIN_V24_PREVIEW_OK' martin-blender.log
+          grep -q 'DefaultAnim' martin-blender.log
+          grep -q 'Cheer' martin-blender.log
+          grep -q 'Walk' martin-blender.log
+          grep -q 'Run' martin-blender.log
+          grep -q 'Talking' martin-blender.log
+          grep -q 'Listening' martin-blender.log
+          grep -q 'Dance' martin-blender.log
           test -s godot-avatar/models/production/martin.glb
-          test "$(stat -c%s godot-avatar/models/production/martin.glb)" -gt 240000
-          test -s martin-v23-preview.png
+          test "$(stat -c%s godot-avatar/models/production/martin.glb)" -gt 350000
+          test -s martin-v24-preview.png
           file godot-avatar/models/production/martin.glb
-          file martin-v23-preview.png | grep PNG
-          ls -lh godot-avatar/models/production/martin.glb martin-v23-preview.png
+          file martin-v24-preview.png | grep PNG
+          ls -lh godot-avatar/models/production/martin.glb martin-v24-preview.png
 
       - name: Upload generated model and preview before branch mutation
         uses: actions/upload-artifact@v4
         with:
-          name: martin-v23-reference-production
+          name: martin-v24-cc0-reference-production
           path: |
             godot-avatar/models/production/martin.glb
-            martin-v23-preview.png
+            martin-v24-preview.png
             martin-blender.log
+            catpilot-source.sha256
           if-no-files-found: error
 
       - name: Commit generated production model
@@ -87,6 +101,6 @@ jobs:
             echo 'No model change to commit'
             exit 0
           fi
-          git commit -m 'Generate Martin v2.3 reference production GLB [skip model-build]'
+          git commit -m 'Generate Martin v2.4 CC0 production GLB [skip model-build]'
           git pull --rebase origin godot-avatar-v1
           git push origin HEAD:godot-avatar-v1
