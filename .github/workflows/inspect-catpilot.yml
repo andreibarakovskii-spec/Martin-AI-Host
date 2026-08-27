@@ -1,0 +1,46 @@
+name: Inspect CC0 Cat Pilot base
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'godot-avatar/tools/inspect_catpilot.py'
+      - '.github/workflows/inspect-catpilot.yml'
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Blender
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq blender libegl1 libgl1 libglx-mesa0 libglu1-mesa
+          blender --version | head -n2
+      - name: Download public-domain Cat Pilot source
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --retry-delay 2 'https://opengameart.org/sites/default/files/CatPilot.blend' -o /tmp/CatPilot.blend
+          test "$(stat -c%s /tmp/CatPilot.blend)" -gt 5000000
+          file /tmp/CatPilot.blend
+      - name: Inspect rig topology and render source
+        env:
+          CATPILOT_PREVIEW: ${{ github.workspace }}/catpilot-inspect.png
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          EGL_PLATFORM: surfaceless
+        run: |
+          set -euxo pipefail
+          timeout 240s blender -b /tmp/CatPilot.blend --python godot-avatar/tools/inspect_catpilot.py 2>&1 | tee catpilot-inspect.log
+          grep -q 'CATPILOT_INSPECT_PREVIEW_OK' catpilot-inspect.log
+          grep -q 'CATPILOT_ARMATURE' catpilot-inspect.log
+          test -s catpilot-inspect.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catpilot-cc0-inspection
+          path: |
+            catpilot-inspect.png
+            catpilot-inspect.log
+          if-no-files-found: error
