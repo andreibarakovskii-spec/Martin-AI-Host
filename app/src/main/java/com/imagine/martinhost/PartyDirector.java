@@ -3,89 +3,22 @@ package com.imagine.martinhost;
 import android.content.Context;
 import java.util.Locale;
 
-/** Minimal event state machine. One production game first: What? Where? When? */
+/** Voice-first party state machine. Short turns, no screen dependency. */
 public final class PartyDirector {
-    public enum Mode { FREE, CHGK_RULES, CHGK_WAIT_READY, CHGK_QUESTION, CHGK_WAIT_ANSWER, CHGK_WAIT_NAME, CHGK_RESULT }
-    public static final class Action {
-        public final String speech;
-        public final String state;
-        public final String gesture;
-        public final String emotion;
-        public final boolean askAi;
-        Action(String speech, String state, String gesture, String emotion, boolean askAi) {
-            this.speech=speech; this.state=state; this.gesture=gesture; this.emotion=emotion; this.askAi=askAi;
-        }
-        public static Action local(String s,String st,String g,String e){ return new Action(s,st,g,e,false); }
-        public static Action ai(String prompt,String st,String g,String e){ return new Action(prompt,st,g,e,true); }
-    }
-
-    private final GuestStore guests;
-    private Mode mode = Mode.FREE;
-    private String expectedAnswer = "обещание";
-    private int pendingPoints = 1;
-
-    public PartyDirector(Context context) { guests = new GuestStore(context); }
-    public Mode mode(){ return mode; }
-
-    public Action startChgk() {
-        mode = Mode.CHGK_RULES;
-        return Action.local(
-            "Играем в «Что? Где? Когда?». Я задаю вопрос, вы можете коротко обсудить ответ и назвать один окончательный вариант. За правильный ответ — один балл. Пример: что можно разбить, даже не прикасаясь? Ответ — обещание. Правила понятны? Начинаем?",
-            "game", "explain_two_hands", "curious");
-    }
-
-    public Action onUserText(String raw) {
-        String text = raw == null ? "" : raw.trim();
-        String low = text.toLowerCase(Locale.ROOT);
-        if (mode == Mode.FREE) {
-            if (low.contains("что где когда") || low.contains("чгк") || low.contains("начни игру")) return startChgk();
-            if (low.contains("тост")) return Action.ai("Скажи короткий теплый тост для Кати и гостей, без принуждения к алкоголю.","toast","raise_glass","warm");
-            return Action.ai(text,"talking","talk_neutral","neutral");
-        }
-        if (mode == Mode.CHGK_RULES || mode == Mode.CHGK_WAIT_READY) {
-            if (isYes(low)) {
-                mode = Mode.CHGK_QUESTION;
-                expectedAnswer = "яма";
-                mode = Mode.CHGK_WAIT_ANSWER;
-                return Action.local("Вопрос. Что становится больше, если от него отнимать?", "game", "question_pose", "focused");
-            }
-            mode = Mode.CHGK_WAIT_READY;
-            return Action.local("Если что-то непонятно — спрашивайте. Когда будете готовы, скажите «начинаем».","listening","explain_one_hand","neutral");
-        }
-        if (mode == Mode.CHGK_WAIT_ANSWER) {
-            if (isCorrect(low, expectedAnswer)) {
-                pendingPoints = 1;
-                mode = Mode.CHGK_WAIT_NAME;
-                return Action.local("Верно! Кто угадал?", "happy", "point_forward", "happy");
-            }
-            return Action.local("Пока не то. Подумайте ещё.", "thinking", "head_shake", "playful");
-        }
-        if (mode == Mode.CHGK_WAIT_NAME) {
-            String name = cleanupName(text);
-            if (!name.isBlank()) {
-                boolean scored = guests.addScore(name, pendingPoints);
-                if (scored) {
-                    mode = Mode.CHGK_RESULT;
-                    return Action.local(name + ", плюс один балл. Отличное начало!", "happy", "celebrate", "happy");
-                }
-                return Action.local("Имя «" + name + "» не нашёл в списке гостей. Повтори имя, как оно записано в настройках.", "listening", "point_forward", "curious");
-            }
-            return Action.local("Не расслышал имя. Кто ответил?", "listening", "point_forward", "curious");
-        }
-        if (mode == Mode.CHGK_RESULT) {
-            mode = Mode.FREE;
-            return Action.local("Первый раунд закончен. Дальше можем поговорить, сказать тост или позже сыграть ещё.","idle","open_hands","neutral");
-        }
-        return Action.ai(text,"talking","talk_neutral","neutral");
-    }
-
-    private static boolean isYes(String s){ return s.contains("да") || s.contains("начина") || s.contains("поехали") || s.contains("готов"); }
-    private static boolean isCorrect(String s,String answer){ return s.contains(answer); }
-    private static String cleanupName(String s){
-        if (s == null) return "";
-        return s.replaceAll("(?iu)\\b(?:это|я|ответил|ответила|сказал|сказала|угадал|угадала|был|была)\\b", "")
-                .replaceAll("^[\\s,.:;!?—-]+|[\\s,.:;!?—-]+$", "")
-                .replaceAll("\\s{2,}", " ")
-                .trim();
-    }
+ public enum Mode { FREE, CHGK_WAIT_READY, CHGK_WAIT_ANSWER, CHGK_WAIT_NAME, TRUE_FALSE_WAIT }
+ public static final class Action { public final String speech,state,gesture,emotion; public final boolean askAi; Action(String s,String st,String g,String e,boolean ai){speech=s;state=st;gesture=g;emotion=e;askAi=ai;} public static Action local(String s,String st,String g,String e){return new Action(s,st,g,e,false);} public static Action ai(String s,String st,String g,String e){return new Action(s,st,g,e,true);} }
+ private final GuestStore guests; private Mode mode=Mode.FREE; private int qIndex=0,pendingPoints=1; private String expected="";
+ private static final String[][] Q={{"Что становится больше, если от него отнимать?","яма"},{"Что принадлежит тебе, но другие используют это чаще тебя?","имя"},{"Что можно увидеть с закрытыми глазами?","сон"},{"Что идёт, но с места не двигается?","время"},{"Чем больше из неё берёшь, тем больше она становится. Что это?","яма"},{"Что можно сломать одним словом?","обещание"}};
+ private static final String[][] TF={{"У осьминога три сердца.","да"},{"Банан растёт на дереве.","нет"},{"Улитка может спать несколько лет.","да"},{"У человека больше костей при рождении, чем во взрослом возрасте.","да"},{"Золото притягивается обычным магнитом.","нет"}};
+ public PartyDirector(Context c){guests=new GuestStore(c);} public Mode mode(){return mode;}
+ public Action startChgk(){mode=Mode.CHGK_WAIT_READY;qIndex=0;return Action.local("Играем в короткий ЧГК. Я задаю вопрос, вы обсуждаете и называете один ответ. За правильный ответ — балл. Готовы?","game","","curious");}
+ public Action startTrueFalse(){mode=Mode.TRUE_FALSE_WAIT;qIndex=0;expected=TF[0][1];return Action.local("Блиц «Правда или ложь». Отвечайте только правда или ложь. Первый факт: "+TF[0][0],"game","","playful");}
+ public Action onUserText(String raw){String text=raw==null?"":raw.trim(),low=text.toLowerCase(Locale.ROOT);
+  if(mode==Mode.FREE){if(low.contains("что где когда")||low.contains("чгк")||low.contains("викторин")||low.contains("конкурс"))return startChgk();if(low.contains("правда")&&low.contains("лож"))return startTrueFalse();if(low.contains("тост"))return Action.ai("Скажи живой короткий тёплый тост для Кати и компании. Без пафоса, 2-3 предложения, как хороший ведущий. Не упоминай, что ты ИИ.","talking","","warm");if(low.contains("музык")||low.contains("плейлист")||low.contains("песн"))return Action.ai("Ответь как диджей вечеринки: коротко предложи подходящий музыкальный блок для компании людей, родившихся в 90-х: узнаваемые хиты 90-х/00-х плюс несколько популярных треков 2026 года. Без длинного списка.","talking","","excited");return Action.ai("Ты Мартин — живой, остроумный ведущий домашнего дня рождения. Отвечай по-русски естественно, разговорно и коротко, обычно 1-3 предложения. Не говори, что ты ИИ. Не используй markdown. Не повторяй вопрос. Уместен лёгкий добрый юмор. Реплика гостя: "+text,"talking","","neutral");}
+  if(mode==Mode.CHGK_WAIT_READY){if(isYes(low)){qIndex=0;expected=Q[qIndex][1];mode=Mode.CHGK_WAIT_ANSWER;return Action.local("Поехали. "+Q[qIndex][0],"game","","focused");}return Action.local("Как будете готовы, скажите «поехали».","listening","","neutral");}
+  if(mode==Mode.CHGK_WAIT_ANSWER){if(correct(low,expected)){pendingPoints=1;mode=Mode.CHGK_WAIT_NAME;return Action.local("Точно! Кто первым дал ответ?","happy","","happy");}return Action.local("Не засчитываю. Ещё одна попытка.","thinking","","playful");}
+  if(mode==Mode.CHGK_WAIT_NAME){String name=cleanupName(text);boolean scored=!name.isBlank()&&guests.addScore(name,pendingPoints);qIndex++;if(qIndex>=Q.length){mode=Mode.FREE;return Action.local((scored?name+", балл записан. ":"")+"Раунд закончен. Отлично сыграли!","happy","","happy");}expected=Q[qIndex][1];mode=Mode.CHGK_WAIT_ANSWER;return Action.local((scored?name+", плюс балл. ":"Баллы потом уточним. ")+"Следующий вопрос. "+Q[qIndex][0],"game","","focused");}
+  if(mode==Mode.TRUE_FALSE_WAIT){boolean yes=low.contains("правда")||low.equals("да"),no=low.contains("лож")||low.equals("нет");if(!yes&&!no)return Action.local("Только правда или ложь?","listening","","playful");boolean ok=(expected.equals("да")&&yes)||(expected.equals("нет")&&no);qIndex++;if(qIndex>=TF.length){mode=Mode.FREE;return Action.local((ok?"Верно! ":"Мимо! ")+"Блиц закончен. Можно запускать следующий конкурс.","happy","","happy");}expected=TF[qIndex][1];return Action.local((ok?"Верно! ":"Нет, наоборот. ")+"Следующий факт: "+TF[qIndex][0],"game","","playful");}
+  mode=Mode.FREE;return Action.ai(text,"talking","","neutral");}
+ private static boolean isYes(String s){return s.contains("да")||s.contains("поехали")||s.contains("готов")||s.contains("начина");}private static boolean correct(String s,String a){return s.contains(a);}private static String cleanupName(String s){if(s==null)return "";return s.replaceAll("(?iu)\\b(?:это|я|ответил|ответила|сказал|сказала|угадал|угадала|был|была)\\b","").replaceAll("^[\\s,.:;!?—-]+|[\\s,.:;!?—-]+$","").replaceAll("\\s{2,}"," ").trim();}
 }
