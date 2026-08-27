@@ -7,7 +7,8 @@ android {
     namespace = "com.imagine.martinhost"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.imagine.martinhost.fixed"
+        applicationId = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "com.imagine.martinhost.diagnostics" else "com.imagine.martinhost.fixed"
+        manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Martin — тест диалога" else "Martin AI Host"
         minSdk = 31
         targetSdk = 36
         versionCode = 91

@@ -8,7 +8,7 @@
 
     <application
         android:allowBackup="false" android:usesCleartextTraffic="false"
-        android:label="Martin AI Host"
+        android:label="${appLabel}"
         android:theme="@style/AppTheme"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

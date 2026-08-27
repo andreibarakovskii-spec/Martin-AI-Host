@@ -24,7 +24,7 @@ jobs:
           path: ~/.android/debug.keystore
           key: martin-debug-signing-v1
       - name: Unit tests and build
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+        run: gradle :app:testDebugUnitTest :app:assembleDebug -PdiagnosticCopy=true --stacktrace
       - name: Check APK
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
@@ -34,7 +34,7 @@ jobs:
           sha256sum "$APK" > apk-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Martin-Voice-Party-0.9.1-APK
+          name: Martin-Dialogue-Test-0.9.1-APK
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             apk-sha256.txt
@@ -50,9 +50,9 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
-            adb shell am start -W -n com.imagine.martinhost.fixed/com.imagine.martinhost.PremiumMainActivity
+            adb shell am start -W -n com.imagine.martinhost.diagnostics/com.imagine.martinhost.PremiumMainActivity
             sleep 15
-            adb shell pidof com.imagine.martinhost.fixed
+            adb shell pidof com.imagine.martinhost.diagnostics
             adb logcat -d > logcat.txt
             if grep -q 'FATAL EXCEPTION' logcat.txt; then exit 1; fi
             adb exec-out screencap -p > voice-orb-screen.png
