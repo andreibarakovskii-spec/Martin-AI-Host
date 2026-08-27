@@ -95,6 +95,7 @@ public final class ContinuousSpeechEngine {
             thread = null;
         }
         releaseRecord();
+        DiagnosticRecorder.get(context).endMic();
     }
 
     private void captureLoop() {
@@ -115,6 +116,7 @@ public final class ContinuousSpeechEngine {
 
             short[] copy = new short[read];
             System.arraycopy(frame, 0, copy, 0, read);
+            DiagnosticRecorder.get(context).mic(copy,read);
             float rmsDb = rmsDb(copy);
             if (!inSpeech && turnManager.acceptMicForStt()) {
                 float capped = Math.min(rmsDb, noiseDb + 8f);
@@ -138,6 +140,7 @@ public final class ContinuousSpeechEngine {
                     utterance = new ByteArrayOutputStream(32000);
                     for (short[] p : preRoll) writePcm(utterance, p);
                     preRoll.clear();
+                    DiagnosticRecorder.get(context).event("vad_speech_start","threshold_db="+threshold+";noise_db="+noiseDb);
                     listener.onStatus("Слышу речь…");
                 }
                 continue;
@@ -162,6 +165,7 @@ public final class ContinuousSpeechEngine {
                 inSpeech = false; utterance = null; preRoll.clear();
                 speechMs = silenceMs = utteranceMs = 0;
                 if (turnManager.acceptMicForStt()) {
+                    DiagnosticRecorder.get(context).event("vad_utterance_end","reason="+(tooLong?"max_length":"silence")+";pcm_bytes="+pcm.length);
                     listener.onStatus("Распознаю…");
                     listener.onSpeechChunk(wavFromPcm(pcm));
                 }

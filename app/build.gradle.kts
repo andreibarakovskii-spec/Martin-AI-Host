@@ -10,8 +10,8 @@ android {
         applicationId = "com.imagine.martinhost.fixed"
         minSdk = 31
         targetSdk = 36
-        versionCode = 90
-        versionName = "0.9.0-voice-party"
+        versionCode = 91
+        versionName = "0.9.1-diagnostics"
     }
     sourceSets.getByName("main") {
         assets.exclude("martin*")

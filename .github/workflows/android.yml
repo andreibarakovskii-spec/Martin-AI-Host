@@ -19,6 +19,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: martin-debug-signing-v1
       - name: Unit tests and build
         run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - name: Check APK
@@ -30,7 +34,7 @@ jobs:
           sha256sum "$APK" > apk-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Martin-Voice-Party-0.9.0-APK
+          name: Martin-Voice-Party-0.9.1-APK
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             apk-sha256.txt

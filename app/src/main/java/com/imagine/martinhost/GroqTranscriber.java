@@ -22,7 +22,10 @@ public final class GroqTranscriber {
             callback.onError("Пустой аудиофрагмент");
             return;
         }
+        DiagnosticRecorder.get(context).audio("stt",wav,16000,true);
+        DiagnosticRecorder.get(context).event("stt_queued","");
         executor.execute(() -> {
+            DiagnosticRecorder.get(context).event("stt_request_start","");
             HttpURLConnection c = null;
             try {
                 var prefs = context.getSharedPreferences("martin", 0);
@@ -55,8 +58,9 @@ public final class GroqTranscriber {
                 if (code < 200 || code >= 300) throw new IllegalStateException("Whisper API " + code + ": " + raw);
                 String text = new JSONObject(raw).optString("text", "").trim();
                 if (text.isBlank()) callback.onError("Речь не распознана");
-                else callback.onText(text);
+                else {DiagnosticRecorder.get(context).event("stt_result",text);callback.onText(text);}
             } catch (Exception e) {
+                DiagnosticRecorder.get(context).event("stt_error",e.getClass().getSimpleName());
                 callback.onError(e.getMessage() == null ? e.toString() : e.getMessage());
             } finally {
                 if (c != null) c.disconnect();

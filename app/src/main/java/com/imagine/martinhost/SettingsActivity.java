@@ -50,6 +50,7 @@ public final class SettingsActivity extends Activity {
         Button testAi = btn("🔌 ПРОВЕРИТЬ AI");
         testAi.setOnClickListener(v -> testAiConnection(testAi));
         root.addView(testAi);
+        Button diag=btn("ДИАГНОСТИКА: ЛОГ + АУДИО");diag.setOnClickListener(v->startActivity(new android.content.Intent(this,DiagnosticsActivity.class)));root.addView(diag);
 
         root.addView(tv("ГОЛОС МАРТИНА", 13, 0xFF8B5CF6));
         voiceStatus = tv("Нейроголос Supertonic хранится локально на телефоне. Загрузка около 380 МБ. Кнопка ниже произнесёт проверочную фразу. Системный голос не подставляется незаметно.", 14, 0xFFB8BFCC);

@@ -263,7 +263,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
         setContentView(root);
         menu.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setTitle("Ведущий")
-            .setItems(new String[]{"Приветствие","Тост для Кати","Закончить конкурс","Очистить память диалога","Посмотри в камеру"},(d,w)->{cancelCurrent();if(w==4){requestVisualReply("Что сейчас видно перед камерой? Ответь коротко и дружелюбно.");return;}if(w==2)runDirectorAction(director.cancel());else if(w==3){grok.clearHistory();turns.forceListen();reply.setText("История диалога очищена");}else handleTranscript(w==0?"Поздоровайся с Катей и гостями, предложи начать праздник":"тост для Кати");}).show());
+            .setItems(new String[]{"Приветствие","Тост для Кати","Закончить конкурс","Очистить память диалога","Посмотри в камеру","Диагностика: лог + аудио"},(d,w)->{cancelCurrent();if(w==5){startActivity(new Intent(this,DiagnosticsActivity.class));return;}if(w==4){requestVisualReply("Что сейчас видно перед камерой? Ответь коротко и дружелюбно.");return;}if(w==2)runDirectorAction(director.cancel());else if(w==3){grok.clearHistory();turns.forceListen();reply.setText("История диалога очищена");}else handleTranscript(w==0?"Поздоровайся с Катей и гостями, предложи начать праздник":"тост для Кати");}).show());
         gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         mic.setOnClickListener(v -> { if (active || queuedSpeech!=null || (turns!=null && turns.state()!=TurnManager.State.LISTENING)) stopAudio(); else startAudio(); });
         setVisualState("idle");
@@ -294,6 +294,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
         if(low.contains("посмотри")||low.contains("что видишь")){requestVisualReply(t);return;}
         if(low.contains("ты видишь")||low.contains("видишь меня")){speak(cameraEnabled?(faceVisible?"В кадре есть человек. Я не определяю личность и не знаю, кто именно говорит.":"Сейчас лицо не попало в кадр. Но можем продолжать голосом."):"Камера выключена. Включить её можно нажатием на индикатор камеры.","neutral",.5f);return;}
+        DiagnosticRecorder.get(this).event("transcript_accepted",t);
         // In games guests answer naturally without a wake word.
         if (director.mode() != PartyDirector.Mode.FREE) {
             runDirectorAction(director.onUserText(t));
@@ -378,6 +379,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     }
 
     private void onTurnState(TurnManager.State s) {
+        DiagnosticRecorder.get(this).event("turn_state",s.name());
         if (!active && director.mode() == PartyDirector.Mode.FREE) return;
         switch (s) {
             case LISTENING:
@@ -419,7 +421,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         setVisualState("listening");
         state.setText("Слушаю…");
         subline.setText("Говори естественно, без паузы на кнопку");
-        mic.setText("●  СЛУШАЮ");
+        mic.setText(DiagnosticRecorder.get(this).active()?"● СЛУШАЮ • ЗАПИСЬ ЛОГА":"●  СЛУШАЮ");
     }
 
     private void stopAudio() {

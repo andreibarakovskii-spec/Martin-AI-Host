@@ -58,28 +58,33 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
     var started=false
     for(sentence in sentences){
      if(token!=generation.get()||closed)return@launch
+     DiagnosticRecorder.get(app).event("tts_synthesis_start",sentence)
      val pcm=e.synthesize(sentence,"ru")
+     DiagnosticRecorder.get(app).event("tts_synthesis_end","samples=${pcm.pcm16.size/2};rate=${pcm.sampleRate}")
      if(token!=generation.get()||closed)return@launch
      if(pcm.pcm16.isEmpty())throw IllegalStateException("Пустой результат синтеза")
      if(!started){withContext(Dispatchers.Main){if(token==generation.get())listener.onStart()};started=true}
-     play(pcm.pcm16,pcm.sampleRate,token)
+     val audioFile=DiagnosticRecorder.get(app).audio("tts",pcm.pcm16,pcm.sampleRate,false)
+     play(pcm.pcm16,pcm.sampleRate,token,audioFile)
     }
     withContext(Dispatchers.Main){if(token==generation.get()&&!closed){listener.onLevel(0f);listener.onDone()}}
    }catch(e:Exception){withContext(Dispatchers.Main){if(token==generation.get()&&!closed)listener.onError("Ошибка синтеза: ${e.javaClass.simpleName}. Текст ответа доступен на экране.")}}
   }
  }
- private suspend fun play(pcm:ByteArray,rate:Int,token:Int){
+ private suspend fun play(pcm:ByteArray,rate:Int,token:Int,audioFile:String){
   val min=AudioTrack.getMinBufferSize(rate,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4096)
   val t=AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
    .setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()).setBufferSizeInBytes(min).setTransferMode(AudioTrack.MODE_STREAM).build()
   track=t
   try {
    if(token!=generation.get())return
-   t.play();var offset=0
+   t.play();DiagnosticRecorder.get(app).event("playback_start",audioFile);var offset=0;var lastReport=0L
    while(offset<pcm.size&&token==generation.get()&&!closed){
     val n=t.write(pcm,offset,minOf(2048,pcm.size-offset),AudioTrack.WRITE_BLOCKING)
     if(n<=0)throw IllegalStateException("AudioTrack write failed")
     offset+=n
+    val now=android.os.SystemClock.elapsedRealtime()
+    if(now-lastReport>=200){DiagnosticRecorder.get(app).event("playback_progress","$audioFile;consumed_frames=${t.playbackHeadPosition};written_bytes=$offset");lastReport=now}
     val audible=((t.playbackHeadPosition.toLong() and 0xffffffffL)*2).toInt().coerceIn(0,pcm.size-2)
     val level=rms(pcm,audible,minOf(2048,pcm.size-audible))
     val bands=spectrum(pcm,audible,rate)
@@ -92,7 +97,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
     if(android.os.SystemClock.elapsedRealtime()>deadline)throw IllegalStateException("Playback drain timeout")
     delay(15)
    }
-  }finally{if(track===t)track=null;try{t.stop()}catch(_:Exception){};t.release()}
+  }finally{DiagnosticRecorder.get(app).event("playback_end","$audioFile;consumed_frames=${t.playbackHeadPosition};cancelled=${token!=generation.get()}");if(track===t)track=null;try{t.stop()}catch(_:Exception){};t.release()}
  }
  private fun spectrum(pcm:ByteArray,offset:Int,rate:Int):FloatArray {
   val size=minOf(512,(pcm.size-offset)/2)
@@ -109,6 +114,6 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
- fun stop(){generation.incrementAndGet();engine?.stop();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
+ fun stop(){DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();engine?.stop();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
  fun close(){if(closed)return;closed=true;stop();ready=false;scope.launch{try{engine?.close();engine=null}finally{scope.cancel();worker.close()}}}
 }
