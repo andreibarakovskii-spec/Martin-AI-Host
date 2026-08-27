@@ -4,24 +4,20 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
     <application
-        android:allowBackup="false"
+        android:allowBackup="false" android:usesCleartextTraffic="false"
         android:label="Martin AI Host"
         android:theme="@style/AppTheme"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:hardwareAccelerated="true">
         <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="portrait" />
-        <activity android:name=".VisualSettingsActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".RankingActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".MusicActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".GamesActivity" android:exported="false" android:screenOrientation="portrait" />
-        <activity android:name=".VisualHomeActivity" android:exported="false" android:screenOrientation="portrait" />
-        <activity android:name=".MainActivity" android:exported="false" android:screenOrientation="portrait" />
-        <activity android:name=".PremiumMainActivity" android:exported="true" android:screenOrientation="portrait">
+        <activity android:name=".PremiumMainActivity" android:launchMode="singleTop" android:exported="true" android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

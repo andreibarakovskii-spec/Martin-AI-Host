@@ -10,8 +10,8 @@ android {
         applicationId = "com.imagine.martinhost.fixed"
         minSdk = 31
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.8.0-party-ready"
+        versionCode = 90
+        versionName = "0.9.0-voice-party"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -26,8 +26,8 @@ android {
 dependencies {
     implementation("audio.soniqo:speech:0.0.17")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("org.godotengine:godot:4.7.2.stable")
     implementation("androidx.fragment:fragment:1.8.9")
+    testImplementation("junit:junit:4.13.2")
 
     // Front-camera face tracking. Camera frames are processed locally and never stored.
     implementation("androidx.camera:camera-core:1.6.1")

@@ -30,7 +30,7 @@ public final class VoiceOrbView extends View {
     public VoiceOrbView(Context context, AttributeSet attrs) { super(context, attrs); init(); }
 
     private void init() {
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        setLayerType(View.LAYER_TYPE_HARDWARE, null);
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeCap(Paint.Cap.ROUND);
         bar.setStyle(Paint.Style.STROKE);
@@ -136,7 +136,7 @@ public final class VoiceOrbView extends View {
         canvas.drawCircle(cx, cy, orbR * 1.02f, stroke);
 
         // Animate only while attached; no timers/threads are created.
-        postInvalidateOnAnimation();
+        if(isShown()) postInvalidateDelayed(33L);
     }
 
     private int accentColor() {

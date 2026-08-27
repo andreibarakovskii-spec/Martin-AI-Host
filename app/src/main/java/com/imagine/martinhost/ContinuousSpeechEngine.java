@@ -29,7 +29,7 @@ public final class ContinuousSpeechEngine {
     private static final int PRE_ROLL_MS = 700;
     private static final int PRE_ROLL_FRAMES = PRE_ROLL_MS / FRAME_MS;
     private static final int MIN_SPEECH_MS = 160;
-    private static final int END_SILENCE_MS = 420;
+    private static final int END_SILENCE_MS = 750;
     private static final int MAX_UTTERANCE_MS = 14000;
 
     private final Context context;
@@ -110,7 +110,8 @@ public final class ContinuousSpeechEngine {
             int read;
             try { read = record.read(frame, 0, frame.length, AudioRecord.READ_BLOCKING); }
             catch (Exception e) { listener.onError("Чтение микрофона: " + e.getMessage()); break; }
-            if (read <= 0) continue;
+            if (read < 0) { listener.onError("Микрофон остановился: " + read); break; }
+            if (read == 0) continue;
 
             short[] copy = new short[read];
             System.arraycopy(frame, 0, copy, 0, read);
@@ -133,11 +134,10 @@ public final class ContinuousSpeechEngine {
                 if (voiced) {
                     inSpeech = true;
                     speechMs = FRAME_MS; silenceMs = 0;
-                    utteranceMs = preRoll.size() * FRAME_MS + FRAME_MS;
+                    utteranceMs = preRoll.size() * FRAME_MS;
                     utterance = new ByteArrayOutputStream(32000);
                     for (short[] p : preRoll) writePcm(utterance, p);
                     preRoll.clear();
-                    writePcm(utterance, copy);
                     listener.onStatus("Слышу речь…");
                 }
                 continue;
@@ -154,6 +154,7 @@ public final class ContinuousSpeechEngine {
             if (voiced) { speechMs += FRAME_MS; silenceMs = 0; }
             else silenceMs += FRAME_MS;
 
+            if (silenceMs >= END_SILENCE_MS && speechMs < MIN_SPEECH_MS) { inSpeech=false; utterance=null; preRoll.clear(); speechMs=silenceMs=utteranceMs=0; continue; }
             boolean complete = silenceMs >= END_SILENCE_MS && speechMs >= MIN_SPEECH_MS;
             boolean tooLong = utteranceMs >= MAX_UTTERANCE_MS;
             if (complete || tooLong) {

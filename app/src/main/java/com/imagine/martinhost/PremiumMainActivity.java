@@ -38,7 +38,11 @@ public final class PremiumMainActivity extends FragmentActivity {
     private VoiceOrbView voiceOrb;
     private TextView state, heard, reply, aiDot, voiceDot, cameraDot, subline;
     private Button mic;
-    private boolean active, neuralReady;
+    private boolean active, neuralReady, destroyed, cameraEnabled;
+    private volatile boolean faceVisible;
+    private int session;
+    private String pendingClip;
+    private TextView cameraHelp;
     private String queuedSpeech;
     private String queuedEmotion = "neutral";
     private float queuedEnergy = .55f;
@@ -47,6 +51,8 @@ public final class PremiumMainActivity extends FragmentActivity {
         super.onCreate(b);
         getWindow().setStatusBarColor(0xFF05060B);
         getWindow().setNavigationBarColor(0xFF05060B);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        cameraEnabled=getSharedPreferences("martin",0).getBoolean("camera_enabled",false);
         buildUi();
 
         PartyAudioRouter.prepare(this);
@@ -54,16 +60,18 @@ public final class PremiumMainActivity extends FragmentActivity {
         stt = new GroqTranscriber(this);
         director = new PartyDirector(this);
         turns = new TurnManager(s -> runOnUiThread(() -> onTurnState(s)));
-        turns.setReleaseTailMs(110L);
+        turns.setReleaseTailMs(PartyAudioRouter.recommendedReleaseTailMs(this));
 
         audio = new ContinuousSpeechEngine(this, turns, new ContinuousSpeechEngine.Listener() {
             @Override public void onSpeechChunk(byte[] wav) {
+                final int token=session;
                 turns.onUserFinal();
                 stt.transcribe(wav, new GroqTranscriber.Callback() {
-                    @Override public void onText(String text) { runOnUiThread(() -> handleTranscript(text)); }
+                    @Override public void onText(String text) { runOnUiThread(() -> {if(active && token==session)handleTranscript(text);}); }
                     @Override public void onError(String e) { runOnUiThread(() -> {
+                        if(!active || token!=session)return;
                         state.setText("Не расслышал");
-                        subline.setText("Скажи ещё раз");
+                        subline.setText(e);
                         setVoiceLevel(0f);
                         turns.forceListen();
                     }); }
@@ -85,6 +93,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         neural = new MartinNeuralSpeaker(this, new MartinNeuralSpeaker.Listener() {
             @Override public void onPreparing(String m) { runOnUiThread(() -> { setVoiceDot(false); subline.setText(m); }); }
             @Override public void onReady() { runOnUiThread(() -> {
+                if(destroyed)return;
                 neuralReady = true;
                 getSharedPreferences("martin", 0).edit().putBoolean("voice_model_ready", true).apply();
                 setVoiceDot(true);
@@ -106,13 +115,19 @@ public final class PremiumMainActivity extends FragmentActivity {
             @Override public void onDone() { runOnUiThread(() -> {
                 setVoiceLevel(0f);
                 setVisualState(active ? "listening" : "idle");
-                turns.onAiSpeechDone();
+                PartyMusic.get(PremiumMainActivity.this).duck(false);
+                if(pendingClip!=null){String u=pendingClip;pendingClip=null;final int token=session;
+                    turns.onAiWillSpeak();state.setText("Слушаем фрагмент…");
+                    PartyMusic.get(PremiumMainActivity.this).clip(u,()->{if(token==session&&!destroyed)turns.onAiSpeechDone();});
+                }else turns.onAiSpeechDone();
             }); }
             @Override public void onError(String message) { runOnUiThread(() -> {
                 neuralReady = false;
                 setVoiceDot(false);
                 setVoiceLevel(0f);
-                state.setText("Голос готовится");
+                PartyMusic.get(PremiumMainActivity.this).duck(false);
+                queuedSpeech=null;pendingClip=null;
+                state.setText("Голос недоступен");
                 subline.setText(message);
                 turns.onAiSpeechDone();
             }); }
@@ -121,14 +136,16 @@ public final class PremiumMainActivity extends FragmentActivity {
         // Camera remains local and independent from the removed 3D renderer.
         // We keep it for presence detection and future video/game interaction.
         faceTracker = new MartinFaceTracker(this, new MartinFaceTracker.Listener() {
-            @Override public void onLook(float x, float y, boolean faceVisible) { }
+            @Override public void onLook(float x, float y, boolean visible) {
+                faceVisible=visible;runOnUiThread(()->{if(cameraEnabled)cameraHelp.setText(visible?"Камера: человек в кадре • без определения личности":"Камера: лицо вне кадра • можно говорить без камеры");});
+            }
             @Override public void onStatus(boolean ok, String message) { runOnUiThread(() -> setCameraDot(ok, message)); }
         });
 
         neural.prepare();
-        requestPerms();
         refreshStatus();
         startFaceTrackerIfAllowed();
+        handleIntent(getIntent());
     }
 
     private void buildUi() {
@@ -178,7 +195,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         orbParams.setMargins(dp(8), dp(8), dp(8), dp(8));
         hero.addView(voiceOrb, orbParams);
 
-        TextView badge = text("LIVE AUDIO • CAMERA", 9, 0xFFBCA8FF, Typeface.BOLD);
+        TextView badge = text("VOICE • LOCAL CAMERA", 9, 0xFFBCA8FF, Typeface.BOLD);
         badge.setGravity(Gravity.CENTER);
         badge.setBackground(round(0x991A1030, 14));
         FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(dp(150), dp(26), Gravity.TOP | Gravity.RIGHT);
@@ -199,9 +216,19 @@ public final class PremiumMainActivity extends FragmentActivity {
         root.addView(heard);
         reply = text("", 11, 0xFFCDBAF7, Typeface.NORMAL);
         reply.setGravity(Gravity.CENTER);
-        reply.setMaxLines(2);
+        reply.setMaxLines(4);
+        reply.setMovementMethod(new android.text.method.ScrollingMovementMethod());
         reply.setPadding(dp(8), dp(3), dp(8), dp(3));
         root.addView(reply);
+        cameraHelp=text("Камера выключена • нажмите индикатор для включения",10,0xFF9691A5,Typeface.NORMAL);cameraHelp.setGravity(Gravity.CENTER);root.addView(cameraHelp);
+        cameraDot.setOnClickListener(v->toggleCamera());
+        LinearLayout actions=new LinearLayout(this);
+        for(String label:new String[]{"Текст","Дальше","Засчитать","Ответ"}){Button b=iconButton(label);b.setTextSize(10);actions.addView(b,new LinearLayout.LayoutParams(0,dp(42),1));b.setOnClickListener(v->{
+            if(label.equals("Текст")){textInput();return;}
+            cancelCurrent();
+            runDirectorAction(label.equals("Дальше")?director.next():label.equals("Засчитать")?director.award():director.reveal());
+        });}root.addView(actions);
+        reply.setOnLongClickListener(v->{new android.app.AlertDialog.Builder(this).setMessage(reply.getText()).setPositiveButton("Закрыть",null).show();return true;});
 
         mic = new Button(this);
         mic.setText("🎙  НАЧАТЬ");
@@ -219,7 +246,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         nav.setPadding(dp(2), dp(3), dp(2), dp(3));
         nav.setBackground(round(0xFF11121A, 22));
         addNav(nav, "⌂", "Главная", true, null);
-        addNav(nav, "🎮", "Игра", false, v -> runDirectorAction(director.startChgk()));
+        addNav(nav, "🎮", "Игры", false, v -> startActivity(new Intent(this, GamesActivity.class)));
         addNav(nav, "♫", "Музыка", false, v -> startActivity(new Intent(this, MusicActivity.class)));
         addNav(nav, "★", "Счёт", false, v -> startActivity(new Intent(this, RankingActivity.class)));
         addNav(nav, "⚙", "Настройки", false, v -> startActivity(new Intent(this, SettingsActivity.class)));
@@ -249,11 +276,13 @@ public final class PremiumMainActivity extends FragmentActivity {
     }
 
     private void handleTranscript(String t) {
+        if (destroyed)return;
         if (t == null || t.isBlank()) { turns.forceListen(); return; }
         heard.setText("Вы: " + t);
         String low = t.toLowerCase(Locale.ROOT);
         if (low.contains("мартин стоп") || low.equals("стоп")) { stopAudio(); return; }
 
+        if(low.contains("ты видишь")||low.contains("видишь меня")){speak(cameraEnabled?(faceVisible?"В кадре есть человек. Я не определяю личность и не знаю, кто именно говорит.":"Сейчас лицо не попало в кадр. Но можем продолжать голосом."):"Камера выключена. Включить её можно нажатием на индикатор камеры.","neutral",.5f);return;}
         // In games guests answer naturally without a wake word.
         if (director.mode() != PartyDirector.Mode.FREE) {
             runDirectorAction(director.onUserText(t));
@@ -271,7 +300,9 @@ public final class PremiumMainActivity extends FragmentActivity {
     }
 
     private void runDirectorAction(PartyDirector.Action a) {
-        if (a == null) { turns.forceListen(); return; }
+        if (a == null || destroyed) { turns.forceListen(); return; }
+        pendingClip=director.takeMusicUri();
+        final int token=session;
         setVisualState(a.state);
         setVisualEmotion(a.emotion);
         setVisualEnergy(energyFor(a.emotion));
@@ -283,11 +314,12 @@ public final class PremiumMainActivity extends FragmentActivity {
             subline.setText("Формулирую ответ");
             grok.reply(a.speech, new GrokClient.Callback() {
                 @Override public void onResult(String raw) {
-                    runOnUiThread(() -> speak(cleanSpeech(raw), a.emotion, energyFor(a.emotion)));
+                    runOnUiThread(() -> {if(token==session&&!destroyed)speak(cleanSpeech(raw), a.emotion, energyFor(a.emotion));});
                 }
                 @Override public void onError(String e) { runOnUiThread(() -> {
+                    if(token!=session||destroyed)return;
                     state.setText("Нет связи с AI");
-                    subline.setText("Проверь AI в настройках");
+                    subline.setText(e);
                     setVoiceLevel(0f);
                     turns.forceListen();
                 }); }
@@ -307,6 +339,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
     private void speak(String text, String emotion, float energy) {
         if (text == null || text.isBlank()) { turns.forceListen(); return; }
+        turns.onAiWillSpeak();
         reply.setText(text);
         setVisualEmotion(emotion);
         setVisualEnergy(energy);
@@ -329,6 +362,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         setVisualEnergy(energy);
         state.setText("Говорю…");
         subline.setText("Синтез речи");
+        PartyMusic.get(this).duck(true);
         neural.speak(text, emotion, energy);
     }
 
@@ -360,6 +394,13 @@ public final class PremiumMainActivity extends FragmentActivity {
             requestPerms();
             return;
         }
+        if(!getSharedPreferences("martin",0).getBoolean("audio_consent",false)){
+            new android.app.AlertDialog.Builder(this).setTitle("Голосовой диалог")
+            .setMessage("Предупредите гостей: речь отправляется в Groq для распознавания, текст — выбранному AI. Видео остаётся на телефоне. Пока ведущий говорит, распознавание приостановлено; остановить можно кнопкой. Продолжить?")
+            .setPositiveButton("Начать",(d,w)->{getSharedPreferences("martin",0).edit().putBoolean("audio_consent",true).apply();startAudio();}).setNegativeButton("Отмена",null).show();return;}
+        String sttKey=getSharedPreferences("martin",0).getString("stt_key","");String aiKey=getSharedPreferences("martin",0).getString("ai_key","");
+        if(!sttKey.startsWith("gsk_")&&!aiKey.startsWith("gsk_")){subline.setText("Для голоса укажите Groq key в настройках. Можно использовать кнопку «Текст».");return;}
+        session++;
         active = true;
         turns.forceListen();
         audio.start();
@@ -371,6 +412,8 @@ public final class PremiumMainActivity extends FragmentActivity {
 
     private void stopAudio() {
         active = false;
+        cancelCurrent();
+        PartyMusic.get(this).stopClip();
         audio.stop();
         if (neural != null) neural.stop();
         turns.forceListen();
@@ -382,7 +425,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     }
 
     private void startFaceTrackerIfAllowed() {
-        if (faceTracker != null && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+        if (cameraEnabled && faceTracker != null && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             faceTracker.start();
         }
     }
@@ -396,11 +439,11 @@ public final class PremiumMainActivity extends FragmentActivity {
     private void refreshStatus() {
         String key = getSharedPreferences("martin", 0).getString("ai_key", "");
         long ok = getSharedPreferences("martin", 0).getLong("groq_last_ok", 0);
-        boolean ai = key.startsWith("gsk_") && ok > 0;
+        boolean ai = !key.isBlank() && ok > 0;
         aiDot.setText(ai ? "● AI" : "● AI?");
         aiDot.setTextColor(ai ? 0xFF58E6A9 : 0xFFFFB35C);
-        setVoiceDot(neuralReady || getSharedPreferences("martin", 0).getBoolean("voice_model_ready", false));
-        setCameraDot(checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED, "Локальное распознавание лица");
+        setVoiceDot(neuralReady);
+        setCameraDot(cameraEnabled && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED, "Локальное обнаружение лица, не личности");
     }
 
     private void setVoiceDot(boolean ok) {
@@ -411,7 +454,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     private void requestPerms() {
         ArrayList<String> p = new ArrayList<>();
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) p.add(Manifest.permission.RECORD_AUDIO);
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) p.add(Manifest.permission.CAMERA);
+        if (cameraEnabled && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) p.add(Manifest.permission.CAMERA);
         if (android.os.Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) p.add(Manifest.permission.BLUETOOTH_CONNECT);
         if (!p.isEmpty()) requestPermissions(p.toArray(new String[0]), REQ);
     }
@@ -421,7 +464,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         if (r == REQ) {
             startFaceTrackerIfAllowed();
             refreshStatus();
-            if (active) startAudio();
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED && !cameraEnabled) startAudio();
         }
     }
 
@@ -433,11 +476,25 @@ public final class PremiumMainActivity extends FragmentActivity {
     }
 
     @Override protected void onDestroy() {
+        destroyed=true;
+        if(grok!=null)grok.close();
+        if(turns!=null)turns.forceListen();
         if (audio != null) audio.stop();
         if (stt != null) stt.close();
         if (neural != null) neural.close();
         if (faceTracker != null) faceTracker.close();
         super.onDestroy();
+    }
+
+    private void cancelCurrent(){session++;queuedSpeech=null;pendingClip=null;if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
+    @Override protected void onPause(){super.onPause();if(audio!=null)stopAudio();if(faceTracker!=null)faceTracker.stop();}
+    @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleIntent(i);}
+    private void handleIntent(Intent i){if(i!=null&&i.hasExtra("game_id")){String id=i.getStringExtra("game_id");i.removeExtra("game_id");cancelCurrent();runDirectorAction(director.startGame(id));}}
+    private void textInput(){android.widget.EditText e=new android.widget.EditText(this);e.setHint("Реплика, ответ или имя гостя");new android.app.AlertDialog.Builder(this).setTitle("Сказать ведущему текстом").setView(e).setPositiveButton("Отправить",(d,w)->{cancelCurrent();handleTranscript(e.getText().toString());}).setNegativeButton("Отмена",null).show();}
+    private void toggleCamera(){
+        if(cameraEnabled){cameraEnabled=false;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",false).apply();faceTracker.stop();cameraHelp.setText("Камера выключена");return;}
+        new android.app.AlertDialog.Builder(this).setTitle("Камера для диалога").setMessage("С согласия гостей: локально обнаруживать лицо перед телефоном. Без записи, отправки кадров, определения личности или эмоций. Камера не определяет, кто говорит.")
+        .setPositiveButton("Включить",(d,w)->{cameraEnabled=true;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",true).apply();if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.CAMERA},REQ);else startFaceTrackerIfAllowed();}).setNegativeButton("Отмена",null).show();
     }
 
     private String cleanSpeech(String raw) {

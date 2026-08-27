@@ -1,125 +1,42 @@
-name: Build Martin AI Host APK
-
+name: Build voice party APK
 on:
   push:
-    branches: [godot-avatar-v1]
+    branches: [voice-orb-v1]
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Verify party-ready 3D tree before build
-        shell: bash
-        run: |
-          set -euxo pipefail
-          test -s godot-avatar/models/production/martin.glb
-          test "$(stat -c%s godot-avatar/models/production/martin.glb)" -gt 500000
-          test -s godot-avatar/scenes/MartinProduction.tscn
-          test -s godot-avatar/scripts/MartinProduction.gd
-          test -s godot-avatar/scripts/AvatarModelAdapter.gd
-          test -s app/src/main/java/com/imagine/martinhost/MartinFaceTracker.java
-          test -s app/src/main/java/com/imagine/martinhost/PartyDirector.java
-          grep -q 'MartinProduction.tscn' godot-avatar/project.godot
-          grep -q 'MartinHostPlugin' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
-          grep -q 'GodotFragment' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
-          grep -q 'extends FragmentActivity implements GodotHost' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
-          ! grep -q 'new Martin3DView' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
-          ! grep -q 'new MartinSpriteView' app/src/main/java/com/imagine/martinhost/PremiumMainActivity.java
-          grep -q 'org.godotengine:godot:4.7.2.stable' app/build.gradle.kts
-          grep -q 'versionName = "0.8.0-party-ready"' app/build.gradle.kts
-          grep -q 'camera-camera2:1.6.1' app/build.gradle.kts
-          grep -q 'face-detection:16.1.7' app/build.gradle.kts
-          grep -q 'android.permission.CAMERA' app/src/main/AndroidManifest.xml
-          grep -q 'PremiumMainActivity' app/src/main/AndroidManifest.xml
-          grep -q '@mipmap/ic_launcher' app/src/main/AndroidManifest.xml
-
-      - name: Install Godot 4.7.2 stable
-        shell: bash
-        run: |
-          set -euxo pipefail
-          RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/godotengine/godot/releases/tags/4.7.2-stable)"
-          URL="$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("stable_linux.x86_64.zip$")) | .browser_download_url' | head -n1)"
-          test -n "$URL" && test "$URL" != "null"
-          curl -fL "$URL" -o godot.zip
-          unzip -q godot.zip -d godot-bin
-          GODOT="$(find godot-bin -maxdepth 1 -type f -name 'Godot*linux*x86_64*' | head -n1)"
-          test -n "$GODOT"
-          chmod +x "$GODOT"
-          sudo mv "$GODOT" /usr/local/bin/godot
-          godot --version | grep '4.7.2'
-
-      - name: Import and smoke-test production Martin
-        shell: bash
-        run: |
-          set -euxo pipefail
-          godot --headless --path godot-avatar --editor --quit-after 120 2>&1 | tee godot-import.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON' godot-import.log
-          timeout 20s godot --headless --path godot-avatar -- --avatar-smoke 2>&1 | tee godot-smoke.log
-          grep -q 'MARTIN_PRODUCTION_READY skeleton=true' godot-smoke.log
-          grep -q 'MARTIN_SMOKE_OK visible_rig=true camera_look=true voice_states=true game_states=true' godot-smoke.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|MARTIN_PRODUCTION_MODEL_MISSING|MARTIN_PRODUCTION_NO_SKELETON|MARTIN_SMOKE_FAIL' godot-smoke.log
-
-      - name: Package imported Godot project into Android assets
-        shell: bash
-        run: |
-          set -euxo pipefail
-          rm -rf app/src/main/assets/.godot app/src/main/assets/models app/src/main/assets/scenes app/src/main/assets/scripts app/src/main/assets/config app/src/main/assets/project.godot
-          rm -f app/src/main/assets/martin_portrait.b64 app/src/main/assets/martin_portrait_valid.b64 app/src/main/assets/martin_avatar.html
-          cp godot-avatar/project.godot app/src/main/assets/project.godot
-          cp -a godot-avatar/.godot app/src/main/assets/.godot
-          cp -a godot-avatar/models app/src/main/assets/models
-          cp -a godot-avatar/scenes app/src/main/assets/scenes
-          cp -a godot-avatar/scripts app/src/main/assets/scripts
-          cp -a godot-avatar/config app/src/main/assets/config
-          test -s app/src/main/assets/models/production/martin.glb
-          test -d app/src/main/assets/.godot/imported
-          grep -q 'MartinProduction.tscn' app/src/main/assets/project.godot
-
+      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.5.0'
-
-      - name: Build party-ready APK
-        shell: bash
+          gradle-version: '8.13'
+      - name: Unit tests and build
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Check APK
         run: |
-          set -euxo pipefail
-          gradle :app:assembleDebug --stacktrace
-
-      - name: Validate APK contains 3D camera voice game runtime
-        shell: bash
-        run: |
-          set -euxo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          unzip -t "$APK" >/dev/null
-          unzip -l "$APK" | grep -q 'assets/models/production/martin.glb'
-          unzip -l "$APK" | grep -q 'assets/scenes/MartinProduction.tscn'
-          unzip -l "$APK" | grep -q 'assets/scripts/MartinProduction.gd'
-          unzip -l "$APK" | grep -q 'assets/.godot/'
-          unzip -l "$APK" | grep -q 'lib/x86_64/libgodot_android.so'
-          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libgodot_android.so'
-          ! unzip -l "$APK" | grep -q 'assets/martin_portrait_valid.b64'
-          ! unzip -l "$APK" | grep -q 'assets/martin_avatar.html'
-          echo "PARTY_READY_3D_APK_PAYLOAD_OK $GITHUB_SHA"
-
-      - name: Upload APK for immediate phone testing
-        uses: actions/upload-artifact@v4
+          unzip -t "$APK"
+          if unzip -l "$APK" | grep -E 'libgodot|martin.glb|MartinProduction'; then exit 1; fi
+          sha256sum "$APK" > apk-sha256.txt
+      - uses: actions/upload-artifact@v4
         with:
-          name: Martin-AI-Host-v0.8.0-party-ready-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Martin-Voice-Party-0.9.0-APK
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            apk-sha256.txt
           if-no-files-found: error
-
-      - name: Boot emulator and verify actual Martin runtime
-        uses: ReactiveCircus/android-emulator-runner@v2
+      - name: Emulator launch
+        uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           target: google_apis
@@ -127,32 +44,19 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            set -euxo pipefail
-            APK=app/build/outputs/apk/debug/app-debug.apk
-            adb install -r "$APK"
-            adb shell pm grant com.imagine.martinhost.fixed android.permission.RECORD_AUDIO || true
-            adb shell pm grant com.imagine.martinhost.fixed android.permission.CAMERA || true
-            adb shell pm grant com.imagine.martinhost.fixed android.permission.BLUETOOTH_CONNECT || true
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
             adb shell am start -W -n com.imagine.martinhost.fixed/com.imagine.martinhost.PremiumMainActivity
-            sleep 20
-            adb shell dumpsys activity activities | grep -q 'com.imagine.martinhost.fixed/com.imagine.martinhost.PremiumMainActivity'
-            adb logcat -d > android-logcat.txt
-            grep -q 'MARTIN_PRODUCTION_READY skeleton=true' android-logcat.txt
-            grep -q 'MARTIN_ANDROID_PLUGIN_CONNECTED' android-logcat.txt
-            ! grep -q 'MARTIN_PRODUCTION_MODEL_MISSING' android-logcat.txt
-            ! grep -q 'MARTIN_PRODUCTION_NO_SKELETON' android-logcat.txt
-            adb exec-out screencap -p > martin-apk-screen.png
-            test -s martin-apk-screen.png
-
+            sleep 15
+            adb shell pidof com.imagine.martinhost.fixed
+            adb logcat -d > logcat.txt
+            if grep -q 'FATAL EXCEPTION' logcat.txt; then exit 1; fi
+            adb exec-out screencap -p > voice-orb-screen.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Martin-AI-Host-v0.8.0-party-ready
+          name: Martin-Voice-Party-QA
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            martin-apk-screen.png
-            android-logcat.txt
-            godot-import.log
-            godot-smoke.log
-          if-no-files-found: warn
+            voice-orb-screen.png
+            logcat.txt
+            app/build/reports/tests/
