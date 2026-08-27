@@ -62,12 +62,14 @@ public final class ContinuousSpeechEngine {
             enableAudioFx(record.getAudioSessionId());
             running = true;
             record.startRecording();
+            DiagnosticRecorder.get(context).event("capture_start","rate=16000;frame_ms=20;pre_roll_ms=700;end_silence_ms=750;min_speech_ms=160;max_utterance_ms=14000;aec="+(aec!=null&&aec.getEnabled())+";ns="+(ns!=null&&ns.getEnabled())+";source=VOICE_COMMUNICATION;buffer_bytes="+bufferBytes);
             thread = new Thread(this::captureLoop, "MartinContinuousAudio");
             thread.start();
             listener.onStatus("Непрерывное прослушивание включено");
         } catch (Exception e) {
             running = false;
             releaseRecord();
+            DiagnosticRecorder.get(context).event("capture_error",e.getClass().getSimpleName());
             listener.onError("AudioRecord: " + e.getMessage());
         }
     }
@@ -106,12 +108,13 @@ public final class ContinuousSpeechEngine {
         int speechMs = 0, silenceMs = 0, utteranceMs = 0;
         float noiseDb = -48f;
         boolean inSpeech = false;
+        long lastHealth=0,lastRead=android.os.SystemClock.elapsedRealtime();
 
         while (running && record != null) {
             int read;
             try { read = record.read(frame, 0, frame.length, AudioRecord.READ_BLOCKING); }
-            catch (Exception e) { listener.onError("Чтение микрофона: " + e.getMessage()); break; }
-            if (read < 0) { listener.onError("Микрофон остановился: " + read); break; }
+            catch (Exception e) { DiagnosticRecorder.get(context).event("capture_read_error",e.getClass().getSimpleName());listener.onError("Чтение микрофона: " + e.getMessage()); break; }
+            if (read < 0) { DiagnosticRecorder.get(context).event("capture_read_error",String.valueOf(read));listener.onError("Микрофон остановился: " + read); break; }
             if (read == 0) continue;
 
             short[] copy = new short[read];
@@ -125,6 +128,13 @@ public final class ContinuousSpeechEngine {
             float threshold = Math.max(-43f, noiseDb + 9.0f);
             boolean voiced = turnManager.acceptMicForStt() && rmsDb > threshold;
             listener.onLevel(rmsDb, noiseDb, voiced);
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(now-lastRead>100)DiagnosticRecorder.get(context).event("capture_read_gap","ms="+(now-lastRead));lastRead=now;
+            if(now-lastHealth>=200&&DiagnosticRecorder.get(context).active()){
+                int clipped=0,peak=0;for(short sample:copy){int v=Math.abs((int)sample);peak=Math.max(peak,v);if(v>=32760)clipped++;}
+                android.media.AudioDeviceInfo route=record==null?null:record.getRoutedDevice();
+                DiagnosticRecorder.get(context).event("mic_health","rms_db="+rmsDb+";noise_db="+noiseDb+";threshold_db="+threshold+";gate="+turnManager.acceptMicForStt()+";state="+turnManager.state()+";voiced="+voiced+";peak="+peak+";clipped_samples="+clipped+";read_samples="+read+";route_type="+(route==null?-1:route.getType()));lastHealth=now;
+            }
 
             if (!inSpeech) {
                 if (turnManager.acceptMicForStt()) {
@@ -147,6 +157,7 @@ public final class ContinuousSpeechEngine {
             }
 
             if (!turnManager.acceptMicForStt()) {
+                DiagnosticRecorder.get(context).event("vad_discard","gate closed");
                 inSpeech = false; utterance = null; preRoll.clear();
                 speechMs = silenceMs = utteranceMs = 0;
                 continue;
@@ -157,7 +168,7 @@ public final class ContinuousSpeechEngine {
             if (voiced) { speechMs += FRAME_MS; silenceMs = 0; }
             else silenceMs += FRAME_MS;
 
-            if (silenceMs >= END_SILENCE_MS && speechMs < MIN_SPEECH_MS) { inSpeech=false; utterance=null; preRoll.clear(); speechMs=silenceMs=utteranceMs=0; continue; }
+            if (silenceMs >= END_SILENCE_MS && speechMs < MIN_SPEECH_MS) { DiagnosticRecorder.get(context).event("vad_discard","too_short;speech_ms="+speechMs);inSpeech=false; utterance=null; preRoll.clear(); speechMs=silenceMs=utteranceMs=0; continue; }
             boolean complete = silenceMs >= END_SILENCE_MS && speechMs >= MIN_SPEECH_MS;
             boolean tooLong = utteranceMs >= MAX_UTTERANCE_MS;
             if (complete || tooLong) {

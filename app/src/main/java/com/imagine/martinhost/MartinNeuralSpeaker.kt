@@ -34,12 +34,14 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   scope.launch {
    try {
     withContext(Dispatchers.Main){if(!closed)listener.onPreparing("Загрузка русского нейроголоса — около 380 МБ, нужен Wi-Fi")}
+    DiagnosticRecorder.get(app).event("tts_prepare_start","Supertonic;SDK=0.0.17;CPU;language=ru;voice=SDK default;emotion_controls=unsupported")
     val dir=ModelManager.ensureTtsModels(app,TtsModel.SUPERTONIC){p->
      if(p.totalBytes>0)scope.launch(Dispatchers.Main){if(!closed)listener.onPreparing("Нейроголос: ${(p.totalBytesDownloaded*100/p.totalBytes).coerceIn(0,100)}%")}
     }
     if(closed)return@launch
     engine=SpeechSynthesizer(SpeechSynthesizerConfig(modelDir=dir,useNnapi=false,ttsModel=TtsModel.SUPERTONIC))
     ready=true
+    DiagnosticRecorder.get(app).event("tts_prepare_ready","")
     withContext(Dispatchers.Main){if(!closed)listener.onReady()}
    }catch(e:Exception){ready=false;withContext(Dispatchers.Main){if(!closed)listener.onError("Не удалось загрузить нейроголос. Проверьте сеть и свободное место. ${e.javaClass.simpleName}")}}
    finally{preparing.set(false)}
@@ -48,6 +50,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  @JvmOverloads fun speak(text:String,emotion:String="neutral",energy:Float=.55f){
   if(text.isBlank()||closed)return
   stop();val token=generation.get()
+  DiagnosticRecorder.get(app).event("tts_request","generation=$token;model=Supertonic;language=ru;voice=SDK default;emotion_controls=unsupported")
   scope.launch {
    try {
     val e=engine ?: throw IllegalStateException("Сначала загрузите модель голоса")
@@ -84,7 +87,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
     if(n<=0)throw IllegalStateException("AudioTrack write failed")
     offset+=n
     val now=android.os.SystemClock.elapsedRealtime()
-    if(now-lastReport>=200){DiagnosticRecorder.get(app).event("playback_progress","$audioFile;consumed_frames=${t.playbackHeadPosition};written_bytes=$offset");lastReport=now}
+    if(now-lastReport>=200){DiagnosticRecorder.get(app).event("playback_progress","$audioFile;consumed_frames=${t.playbackHeadPosition};written_bytes=$offset;underruns=${t.underrunCount};route_type=${t.routedDevice?.type ?: -1};buffer_frames=${t.bufferSizeInFrames}");lastReport=now}
     val audible=((t.playbackHeadPosition.toLong() and 0xffffffffL)*2).toInt().coerceIn(0,pcm.size-2)
     val level=rms(pcm,audible,minOf(2048,pcm.size-audible))
     val bands=spectrum(pcm,audible,rate)

@@ -37,6 +37,7 @@ public final class GroqTranscriber {
                     throw new IllegalStateException("Для распознавания речи укажите Groq STT key gsk_… в настройках");
 
                 String model = prefs.getString("stt_model", "whisper-large-v3-turbo");
+                DiagnosticRecorder.get(context).event("stt_model",model+";language=ru");
                 String boundary = "----MartinBoundary" + System.nanoTime();
                 c = (HttpURLConnection)new URL("https://api.groq.com/openai/v1/audio/transcriptions").openConnection();
                 c.setRequestMethod("POST");
@@ -52,13 +53,14 @@ public final class GroqTranscriber {
                     out.write(wav);
                     out.write(("\r\n--"+boundary+"--\r\n").getBytes(StandardCharsets.UTF_8));
                 }
+                DiagnosticRecorder.get(context).event("stt_upload_end","");
                 int code = c.getResponseCode();
                 DiagnosticRecorder.get(context).event("stt_http",String.valueOf(code));
                 InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
                 String raw = is == null ? "" : new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 if (code < 200 || code >= 300) throw new IllegalStateException("Whisper API " + code + ": " + raw);
                 String text = new JSONObject(raw).optString("text", "").trim();
-                if (text.isBlank()) callback.onError("Речь не распознана");
+                if (text.isBlank()) {DiagnosticRecorder.get(context).event("stt_empty","");callback.onError("Речь не распознана");}
                 else {DiagnosticRecorder.get(context).event("stt_result",text);callback.onText(text);}
             } catch (Exception e) {
                 DiagnosticRecorder.get(context).event("stt_error",e.getClass().getSimpleName());
