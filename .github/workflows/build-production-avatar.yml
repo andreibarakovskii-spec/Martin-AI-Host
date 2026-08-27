@@ -6,12 +6,14 @@ on:
     branches: [ godot-avatar-v1 ]
     paths:
       - 'godot-avatar/tools/build_martin_blender.py'
+      - 'godot-avatar/tools/build_martin_v21.py'
       - 'godot-avatar/THIRD_PARTY_ASSETS.md'
       - '.github/workflows/build-production-avatar.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'godot-avatar/tools/build_martin_blender.py'
+      - 'godot-avatar/tools/build_martin_v21.py'
       - 'godot-avatar/THIRD_PARTY_ASSETS.md'
       - '.github/workflows/build-production-avatar.yml'
 
@@ -37,35 +39,35 @@ jobs:
           timeout 20s blender -b --python-expr 'import numpy,bpy; print("BLENDER_NUMPY_OK", numpy.__version__); bpy.ops.wm.quit_blender()' 2>&1 | tee blender-numpy.log
           grep -q 'BLENDER_NUMPY_OK' blender-numpy.log
 
-      - name: Generate Martin v2 rig, materials and animations
+      - name: Generate Martin v2.1 rig, materials and animations
         env:
           MARTIN_OUT: ${{ github.workspace }}/godot-avatar/models/production/martin.glb
-          MARTIN_PREVIEW: ${{ github.workspace }}/martin-v2-preview.png
+          MARTIN_PREVIEW: ${{ github.workspace }}/martin-v21-preview.png
           LIBGL_ALWAYS_SOFTWARE: '1'
           EGL_PLATFORM: surfaceless
         run: |
           set -euxo pipefail
-          timeout 240s blender -b --factory-startup --python godot-avatar/tools/build_martin_blender.py 2>&1 | tee martin-blender.log
-          grep -q 'MARTIN_V2_RIG' martin-blender.log
-          grep -q 'MARTIN_V2_GLB_OK' martin-blender.log
+          timeout 240s blender -b --factory-startup --python godot-avatar/tools/build_martin_v21.py 2>&1 | tee martin-blender.log
+          grep -q 'MARTIN_V21_RIG' martin-blender.log
+          grep -q 'MARTIN_V21_GLB_OK' martin-blender.log
           grep -q 'MARTIN_ACTION DefaultAnim' martin-blender.log
           grep -q 'MARTIN_ACTION Cheer' martin-blender.log
           grep -q 'MARTIN_ACTION Walk' martin-blender.log
           grep -q 'MARTIN_ACTION Run' martin-blender.log
           test -s godot-avatar/models/production/martin.glb
           test "$(stat -c%s godot-avatar/models/production/martin.glb)" -gt 200000
-          test -s martin-v2-preview.png
+          test -s martin-v21-preview.png
           file godot-avatar/models/production/martin.glb
-          file martin-v2-preview.png | grep PNG
-          ls -lh godot-avatar/models/production/martin.glb martin-v2-preview.png
+          file martin-v21-preview.png | grep PNG
+          ls -lh godot-avatar/models/production/martin.glb martin-v21-preview.png
 
       - name: Upload generated model and preview before branch mutation
         uses: actions/upload-artifact@v4
         with:
-          name: martin-v2-production
+          name: martin-v21-production
           path: |
             godot-avatar/models/production/martin.glb
-            martin-v2-preview.png
+            martin-v21-preview.png
             martin-blender.log
           if-no-files-found: error
 
@@ -80,6 +82,6 @@ jobs:
             echo 'No model change to commit'
             exit 0
           fi
-          git commit -m 'Generate Martin v2 procedural production GLB [skip model-build]'
+          git commit -m 'Generate Martin v2.1 production GLB [skip model-build]'
           git pull --rebase origin godot-avatar-v1
           git push origin HEAD:godot-avatar-v1
