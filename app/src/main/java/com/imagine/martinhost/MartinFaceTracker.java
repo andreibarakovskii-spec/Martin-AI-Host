@@ -28,7 +28,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Local-only front-camera gaze tracker. No frame leaves the device and no image is stored.
+ * Local face presence. An explicit requestFrame emits one JPEG to the host;
+ * the host obtains separate upload consent. No images are stored.
  * It emits just normalized (-1..1) face coordinates for Martin's head/eye look target.
  */
 @ExperimentalGetImage
@@ -36,6 +37,7 @@ public final class MartinFaceTracker implements AutoCloseable {
     public interface Listener {
         void onLook(float x, float y, boolean faceVisible);
         void onStatus(boolean active, String message);
+        default void onFrame(byte[] jpeg) {}
     }
 
     private final FragmentActivity activity;
@@ -45,7 +47,8 @@ public final class MartinFaceTracker implements AutoCloseable {
     private final FaceDetector detector;
     private ProcessCameraProvider provider;
     private ImageAnalysis analysis;
-    private volatile boolean running;
+    private volatile boolean running, closing, wantFrame;
+    public void requestFrame(){wantFrame=true;}
     private float smoothX = 0f, smoothY = 0f;
     private long lastFaceAt = 0L;
     private long lastEmitAt = 0L;
@@ -110,6 +113,7 @@ public final class MartinFaceTracker implements AutoCloseable {
             return;
         }
         int rotation = proxy.getImageInfo().getRotationDegrees();
+        if(wantFrame){wantFrame=false;try{listener.onFrame(CameraFrameEncoder.jpeg(media,rotation));}catch(Exception e){listener.onStatus(false,"Не удалось получить кадр");}}
         InputImage input = InputImage.fromMediaImage(media, rotation);
         detector.process(input)
                 .addOnSuccessListener(cameraExecutor, faces -> emitFace(faces, proxy.getWidth(), proxy.getHeight(), rotation))
@@ -117,10 +121,12 @@ public final class MartinFaceTracker implements AutoCloseable {
                 .addOnCompleteListener(cameraExecutor, task -> {
                     inFlight.set(false);
                     proxy.close();
+                    if(closing){detector.close();cameraExecutor.shutdown();}
                 });
     }
 
     private void emitFace(List<Face> faces, int rawW, int rawH, int rotation) {
+        if(!running)return;
         if (faces == null || faces.isEmpty()) {
             emitCenterIfNeeded();
             return;
@@ -165,6 +171,7 @@ public final class MartinFaceTracker implements AutoCloseable {
 
     public void stop() {
         running = false;
+        wantFrame=false;
         if (analysis != null) analysis.clearAnalyzer();
         if (provider != null) provider.unbindAll();
         analysis = null;
@@ -173,8 +180,8 @@ public final class MartinFaceTracker implements AutoCloseable {
     }
 
     @Override public void close() {
+        closing=true;
         stop();
-        detector.close();
-        cameraExecutor.shutdownNow();
+        if(!inFlight.get()){detector.close();cameraExecutor.shutdown();}
     }
 }

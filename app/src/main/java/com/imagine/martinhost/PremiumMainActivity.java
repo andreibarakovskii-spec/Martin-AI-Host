@@ -42,6 +42,8 @@ public final class PremiumMainActivity extends FragmentActivity {
     private volatile boolean faceVisible;
     private volatile int session;
     private String pendingClip;
+    private String visualQuestion, pendingCameraQuestion;
+    private int visualSession;
     private TextView cameraHelp;
     private String queuedSpeech;
     private String queuedEmotion = "neutral";
@@ -140,7 +142,13 @@ public final class PremiumMainActivity extends FragmentActivity {
             @Override public void onLook(float x, float y, boolean visible) {
                 faceVisible=visible;runOnUiThread(()->{if(cameraEnabled)cameraHelp.setText(visible?"Камера: человек в кадре • без определения личности":"Камера: лицо вне кадра • можно говорить без камеры");});
             }
-            @Override public void onStatus(boolean ok, String message) { runOnUiThread(() -> setCameraDot(ok, message)); }
+            @Override public void onStatus(boolean ok, String message) { runOnUiThread(() -> {setCameraDot(ok,message);if(!ok&&visualQuestion!=null){visualQuestion=null;subline.setText(message);turns.forceListen();}}); }
+            @Override public void onFrame(byte[] jpeg){runOnUiThread(()->{
+                if(visualQuestion==null||visualSession!=session||destroyed)return;
+                final String q=visualQuestion;visualQuestion=null;final int token=session;state.setText("Смотрю на кадр…");
+                grok.replyWithImage(q,jpeg,new GrokClient.Callback(){public void onResult(String text){runOnUiThread(()->{if(token==session&&!destroyed)speak(cleanSpeech(text),"curious",.6f);});}
+                    public void onError(String e){runOnUiThread(()->{if(token==session&&!destroyed){subline.setText(e);turns.forceListen();}});}});
+            });}
         });
 
         neural.prepare();
@@ -255,7 +263,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
         setContentView(root);
         menu.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setTitle("Ведущий")
-            .setItems(new String[]{"Приветствие","Тост для Кати","Закончить конкурс","Очистить память диалога"},(d,w)->{cancelCurrent();if(w==2)runDirectorAction(director.cancel());else if(w==3){grok.clearHistory();turns.forceListen();reply.setText("История диалога очищена");}else handleTranscript(w==0?"Поздоровайся с Катей и гостями, предложи начать праздник":"тост для Кати");}).show());
+            .setItems(new String[]{"Приветствие","Тост для Кати","Закончить конкурс","Очистить память диалога","Посмотри в камеру"},(d,w)->{cancelCurrent();if(w==4){requestVisualReply("Что сейчас видно перед камерой? Ответь коротко и дружелюбно.");return;}if(w==2)runDirectorAction(director.cancel());else if(w==3){grok.clearHistory();turns.forceListen();reply.setText("История диалога очищена");}else handleTranscript(w==0?"Поздоровайся с Катей и гостями, предложи начать праздник":"тост для Кати");}).show());
         gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         mic.setOnClickListener(v -> { if (active || queuedSpeech!=null || (turns!=null && turns.state()!=TurnManager.State.LISTENING)) stopAudio(); else startAudio(); });
         setVisualState("idle");
@@ -284,6 +292,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         String low = t.toLowerCase(Locale.ROOT);
         if (low.contains("мартин стоп") || low.equals("стоп")) { stopAudio(); return; }
 
+        if(low.contains("посмотри")||low.contains("что видишь")){requestVisualReply(t);return;}
         if(low.contains("ты видишь")||low.contains("видишь меня")){speak(cameraEnabled?(faceVisible?"В кадре есть человек. Я не определяю личность и не знаю, кто именно говорит.":"Сейчас лицо не попало в кадр. Но можем продолжать голосом."):"Камера выключена. Включить её можно нажатием на индикатор камеры.","neutral",.5f);return;}
         // In games guests answer naturally without a wake word.
         if (director.mode() != PartyDirector.Mode.FREE) {
@@ -464,6 +473,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
     @Override public void onRequestPermissionsResult(int r, String[] p, int[] g) {
         super.onRequestPermissionsResult(r, p, g);
+        if(r==18){visualQuestion=pendingCameraQuestion;pendingCameraQuestion=null;visualSession=session;if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED){startFaceTrackerIfAllowed();faceTracker.requestFrame();}else{visualQuestion=null;turns.forceListen();subline.setText("Нет доступа к камере");}return;}
         if (r == REQ) {
             startFaceTrackerIfAllowed();
             refreshStatus();
@@ -489,7 +499,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         super.onDestroy();
     }
 
-    private void cancelCurrent(){session++;PartyMusic.get(this).stopClip();queuedSpeech=null;pendingClip=null;if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
+    private void cancelCurrent(){session++;visualQuestion=null;PartyMusic.get(this).stopClip();queuedSpeech=null;pendingClip=null;if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
     @Override protected void onPause(){super.onPause();if(audio!=null)stopAudio();if(faceTracker!=null)faceTracker.stop();}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleIntent(i);}
     private void handleIntent(Intent i){if(i!=null&&i.hasExtra("game_id")){String id=i.getStringExtra("game_id");i.removeExtra("game_id");cancelCurrent();runDirectorAction(director.startGame(id));}}
@@ -498,6 +508,14 @@ public final class PremiumMainActivity extends FragmentActivity {
         if(cameraEnabled){cameraEnabled=false;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",false).apply();faceTracker.stop();cameraHelp.setText("Камера выключена");return;}
         new android.app.AlertDialog.Builder(this).setTitle("Камера для диалога").setMessage("С согласия гостей: локально обнаруживать лицо перед телефоном. Без записи, отправки кадров, определения личности или эмоций. Камера не определяет, кто говорит.")
         .setPositiveButton("Включить",(d,w)->{cameraEnabled=true;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",true).apply();if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.CAMERA},REQ);else startFaceTrackerIfAllowed();}).setNegativeButton("Отмена",null).show();
+    }
+
+    private void requestVisualReply(String question){
+        turns.onUserFinal();
+        new android.app.AlertDialog.Builder(this).setTitle("Отправить один кадр в AI?")
+        .setMessage("С согласия людей в кадре: текущая фотография с фронтальной камеры будет отправлена выбранному провайдеру Groq или xAI для ответа. Видео не записывается. После ответа обычный режим камеры остаётся локальным.")
+        .setPositiveButton("Отправить кадр",(d,w)->{cancelCurrent();visualQuestion=question;visualSession=session;cameraEnabled=true;turns.onUserFinal();state.setText("Получаю кадр…");if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){pendingCameraQuestion=question;requestPermissions(new String[]{Manifest.permission.CAMERA},18);}else{startFaceTrackerIfAllowed();faceTracker.requestFrame();}})
+        .setNegativeButton("Отмена",(d,w)->turns.forceListen()).setOnCancelListener(d->turns.forceListen()).show();
     }
 
     private String cleanSpeech(String raw) {

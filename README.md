@@ -11,7 +11,7 @@ Active branch: `voice-orb-v1`. Previous 3D work remains in `archive-martin-3d`.
 - Twelve game modes: rules, readiness, rounds, answer checking or explicit organiser scoring, real persistent guest scores.
 - Musical quizzes play 6-second clips from user-imported audio. Track metadata editable. Music player: play/pause/next/previous/clear.
 - Prepared 90s/00s search list and current Yandex chart link. No remote playlist creation or DRM playback control is claimed.
-- Opt-in local camera face presence detection. No identity, speaker identification, emotion inference, recording or cloud video analysis.
+- Opt-in local camera face presence detection. Command «посмотри» sends one current JPEG to Groq vision / xAI only after an explicit per-frame confirmation. Frames are not saved. No identity/speaker identification or emotion inference.
 
 ## First launch
 
@@ -19,7 +19,7 @@ Android 12+. Configure Groq STT key (a Groq AI key can be reused for STT), then 
 Download/test voice on Wi-Fi in Settings. Add guest names and optional safe facts. Inform guests that speech is sent to Groq and text to the selected AI service.
 Import your audio files and edit artist/title/year for musical games. For safe personal privacy, camera is off by default and can be disabled independently. Microphone pauses during host speech; tap stop to interrupt. App must stay in foreground.
 
-Photo-based games are currently **verbal adaptations**, labelled accordingly; photo collages and AI videos are not bundled. Camera is **presence only**, not full video dialogue. No Android-device performance or real-party audio validation is implied by CI.
+Photo-based games are currently **verbal adaptations**, labelled accordingly; photo collages and AI videos are not bundled. Camera supports local presence and explicitly requested still-frame dialogue, not continuous video analysis. No Android-device performance or real-party audio validation is implied by CI.
 
 ## Verification
 
