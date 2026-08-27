@@ -32,8 +32,10 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq blender libegl1 libgl1 libglx-mesa0 libglu1-mesa
+          sudo apt-get install -y -qq blender python3-numpy libegl1 libgl1 libglx-mesa0 libglu1-mesa
           blender --version | head -n 2
+          timeout 20s blender -b --python-expr 'import numpy,bpy; print("BLENDER_NUMPY_OK", numpy.__version__); bpy.ops.wm.quit_blender()' 2>&1 | tee blender-numpy.log
+          grep -q 'BLENDER_NUMPY_OK' blender-numpy.log
 
       - name: Generate Martin v2 rig, materials and animations
         env:
