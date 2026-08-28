@@ -11,8 +11,9 @@ android {
         manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Martin — тест диалога" else "Martin AI Host"
         minSdk = 31
         targetSdk = 36
-        versionCode = 92
-        versionName = "0.9.2-local-voices"
+        testInstrumentationRunner = "android.test.InstrumentationTestRunner"
+        versionCode = 93
+        versionName = "0.9.3-fast-voice"
     }
     sourceSets.getByName("main") {
         assets.exclude("martin*")
@@ -29,7 +30,8 @@ android {
 }
 
 dependencies {
-    implementation("audio.soniqo:speech:0.0.17")
+    implementation("com.xdcobra.sherpa:sherpa-onnx:1.13.2-1:java@aar")
+    implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.fragment:fragment:1.8.9")
     testImplementation("junit:junit:4.13.2")

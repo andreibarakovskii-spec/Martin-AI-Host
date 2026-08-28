@@ -15,6 +15,10 @@ public final class GroqTranscriber {
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
+    private final java.util.concurrent.atomic.AtomicInteger generation=new java.util.concurrent.atomic.AtomicInteger();
+    private volatile HttpURLConnection connection;
+    public void cancel(){generation.incrementAndGet();HttpURLConnection c=connection;if(c!=null)c.disconnect();}
+
     public GroqTranscriber(Context context) { this.context = context.getApplicationContext(); }
 
     public void transcribe(byte[] wav, Callback callback) {
@@ -24,7 +28,9 @@ public final class GroqTranscriber {
         }
         DiagnosticRecorder.get(context).audio("stt",wav,16000,true);
         DiagnosticRecorder.get(context).event("stt_queued","");
+        final int token=generation.get();
         executor.execute(() -> {
+            if(token!=generation.get())return;
             DiagnosticRecorder.get(context).event("stt_request_start","");
             HttpURLConnection c = null;
             try {
@@ -40,6 +46,8 @@ public final class GroqTranscriber {
                 DiagnosticRecorder.get(context).event("stt_model",model+";language=ru");
                 String boundary = "----MartinBoundary" + System.nanoTime();
                 c = (HttpURLConnection)new URL("https://api.groq.com/openai/v1/audio/transcriptions").openConnection();
+                connection=c;
+                if(token!=generation.get())return;
                 c.setRequestMethod("POST");
                 c.setDoOutput(true);
                 c.setConnectTimeout(12000);
@@ -59,14 +67,16 @@ public final class GroqTranscriber {
                 InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
                 String raw = is == null ? "" : new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 if (code < 200 || code >= 300) throw new IllegalStateException("Whisper API " + code + ": " + raw);
+                               if(token!=generation.get())return;
                 String text = new JSONObject(raw).optString("text", "").trim();
                 if (text.isBlank()) {DiagnosticRecorder.get(context).event("stt_empty","");callback.onError("Речь не распознана");}
                 else {DiagnosticRecorder.get(context).event("stt_result",text);callback.onText(text);}
             } catch (Exception e) {
                 DiagnosticRecorder.get(context).event("stt_error",e.getClass().getSimpleName());
-                callback.onError(e.getMessage() == null ? e.toString() : e.getMessage());
+                if(token==generation.get())callback.onError(e.getMessage() == null ? e.toString() : e.getMessage());
             } finally {
                 if (c != null) c.disconnect();
+                if(connection==c)connection=null;
             }
         });
     }
@@ -75,5 +85,5 @@ public final class GroqTranscriber {
         out.write(("--"+boundary+"\r\nContent-Disposition: form-data; name=\""+name+"\"\r\n\r\n"+value+"\r\n").getBytes(StandardCharsets.UTF_8));
     }
 
-    public void close() { executor.shutdownNow(); }
+    public void close() { cancel();executor.shutdownNow(); }
 }

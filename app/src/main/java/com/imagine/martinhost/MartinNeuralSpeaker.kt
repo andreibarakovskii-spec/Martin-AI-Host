@@ -2,7 +2,6 @@ package com.imagine.martinhost
 
 import android.content.Context
 import android.media.*
-import audio.soniqo.speech.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,7 +21,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   fun onError(message: String)
  }
  private val app=context.applicationContext
- private var baseModelDir:String?=null
+
  private var loadedVoice=""
  private val engineLock=Any()
  private val worker=Executors.newSingleThreadExecutor().asCoroutineDispatcher()
@@ -31,7 +30,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  private fun enqueue(action:suspend ()->Unit){scope.launch{operationLock.withLock{action()}}}
  private val preparing=AtomicBoolean(false)
  private val generation=AtomicInteger(0)
- @Volatile private var engine: SpeechSynthesizer?=null
+ @Volatile private var engine: FastVoiceEngine?=null
  @Volatile private var track: AudioTrack?=null
  @Volatile private var ready=false
  @Volatile private var closed=false
@@ -48,20 +47,25 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  }
  private suspend fun ensureVoice(requested:String){
   val voice=LocalVoiceProfiles.valid(requested)
-  if(engine!=null&&loadedVoice==voice)return
-  DiagnosticRecorder.get(app).event("tts_prepare_start","Supertonic;SDK=0.0.17;CPU;language=ru;voice=$voice")
-  withContext(Dispatchers.Main){if(!closed)listener.onPreparing("Подготовка ${LocalVoiceProfiles.label(voice)}. При первой загрузке нужен интернет — около 380 МБ")}
-  val dir=baseModelDir?:ModelManager.ensureTtsModels(app,TtsModel.SUPERTONIC){p->
-   if(p.totalBytes>0)scope.launch(Dispatchers.Main){if(!closed)listener.onPreparing("Модель: ${(p.totalBytesDownloaded*100/p.totalBytes).coerceIn(0,100)}%")}
-  }.also{baseModelDir=it}
+  if(engine!=null){loadedVoice=voice;return}
+  val log=DiagnosticRecorder.get(app)
+  log.event("tts_prepare_start","Supertonic3;sherpa-onnx=1.13.2;INT8;threads=2;steps=5;voice=$voice")
+  val dir=FastVoiceModel.ensure(app.filesDir,{closed}){message->
+   scope.launch(Dispatchers.Main){if(!closed)listener.onPreparing(message)}
+  }
   if(closed)throw CancellationException()
-  // Same weights, distinct official style; no canonical model file is changed.
-  val profile=LocalVoiceProfiles.prepare(java.io.File(dir),app.filesDir,voice)
-  synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}
-  val next=SpeechSynthesizer(SpeechSynthesizerConfig(modelDir=profile.absolutePath,useNnapi=false,ttsModel=TtsModel.SUPERTONIC))
-  synchronized(engineLock){engine=next;loadedVoice=voice}
+  withContext(Dispatchers.Main){if(!closed)listener.onPreparing("Прогрев нового голосового движка…")}
+  val next=FastVoiceEngine(dir)
+  try {
+   val start=android.os.SystemClock.elapsedRealtime()
+   val warm=next.synthesize("Готов.",voice,1f){closed}
+   if(closed)throw CancellationException()
+   if(warm.pcm16.isEmpty())throw IllegalStateException("Пустой прогрев голоса")
+   log.event("tts_warmup_end","ms=${android.os.SystemClock.elapsedRealtime()-start};samples=${warm.pcm16.size/2}")
+   synchronized(engineLock){engine=next;loadedVoice=voice}
+  }catch(e:Throwable){next.close();throw e}
   ready=true
-  DiagnosticRecorder.get(app).event("tts_prepare_ready","voice=$voice")
+  log.event("tts_prepare_ready","voice=$voice")
  }
  @JvmOverloads fun speak(text:String,emotion:String="neutral",energy:Float=.55f){
   val p=app.getSharedPreferences("martin",0)
@@ -71,7 +75,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  private fun speakInternal(text:String,requestedVoice:String,requestedSpeed:Float){
   if(text.isBlank()||closed)return
   stop();val token=generation.get();val voice=LocalVoiceProfiles.valid(requestedVoice);val speed=requestedSpeed.coerceIn(.85f,1.15f)
-  DiagnosticRecorder.get(app).event("tts_request","generation=$token;provider=Supertonic;voice=$voice;playback_speed=$speed;emotion_controls=unsupported")
+  DiagnosticRecorder.get(app).event("tts_request","generation=$token;provider=sherpa-onnx-int8;steps=5;voice=$voice;synthesis_speed=$speed;emotion_controls=unsupported")
   enqueue {
    try {
     if(token!=generation.get()||closed)return@enqueue
@@ -79,31 +83,43 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
     val e=engine?:throw IllegalStateException("Модель недоступна")
     if(token!=generation.get()||closed)return@enqueue
     val clean=text.replace(Regex("<[^>]+>"),"").replace(Regex("\\s+")," ").trim()
-    val sentences=clean.split(Regex("(?<=[.!?…])\\s+"))
+    if(clean.isBlank()){withContext(Dispatchers.Main){if(token==generation.get())listener.onDone()};return@enqueue}
+    val sentences=SpeechChunks.split(clean)
     var started=false
-    for(sentence in sentences){
-     if(token!=generation.get()||closed)return@enqueue
-     DiagnosticRecorder.get(app).event("tts_synthesis_start",sentence)
-     val pcm=e.synthesize(sentence,"ru")
-     DiagnosticRecorder.get(app).event("tts_synthesis_end","samples=${pcm.pcm16.size/2};rate=${pcm.sampleRate}")
-     if(token!=generation.get()||closed)return@enqueue
-     if(pcm.pcm16.isEmpty())throw IllegalStateException("Пустой результат синтеза")
-     if(!started){withContext(Dispatchers.Main){if(token==generation.get())listener.onStart()};started=true}
-     val audioFile=DiagnosticRecorder.get(app).audio("tts",pcm.pcm16,pcm.sampleRate,false)
-     play(pcm.pcm16,pcm.sampleRate,token,audioFile,speed)
+    // At most one future chunk. Native work and playback may overlap, but model
+    // ownership stays with this operation until every child has completed.
+    coroutineScope {
+     suspend fun synthesize(sentence:String):FastVoiceEngine.Pcm=withContext(Dispatchers.IO){
+      if(token!=generation.get()||closed)throw CancellationException()
+      val start=android.os.SystemClock.elapsedRealtime()
+      DiagnosticRecorder.get(app).event("tts_synthesis_start",sentence)
+      val pcm=e.synthesize(sentence,voice,speed){token!=generation.get()||closed}
+      DiagnosticRecorder.get(app).event("tts_synthesis_end","samples=${pcm.pcm16.size/2};rate=${pcm.sampleRate};ms=${android.os.SystemClock.elapsedRealtime()-start}")
+      if(token!=generation.get()||closed)throw CancellationException()
+      if(pcm.pcm16.isEmpty())throw IllegalStateException("Пустой результат синтеза")
+      pcm
+     }
+     var pending=async{ synthesize(sentences[0]) }
+     for(i in sentences.indices){
+      val pcm=pending.await()
+      if(token!=generation.get()||closed)throw CancellationException()
+      if(i+1<sentences.size)pending=async{ synthesize(sentences[i+1]) }
+      if(!started){withContext(Dispatchers.Main){if(token==generation.get())listener.onStart()};started=true}
+      val audioFile=DiagnosticRecorder.get(app).audio("tts",pcm.pcm16,pcm.sampleRate,false)
+      play(pcm.pcm16,pcm.sampleRate,token,audioFile)
+     }
     }
     withContext(Dispatchers.Main){if(token==generation.get()&&!closed){listener.onLevel(0f);listener.onDone()}}
-   }catch(e:Exception){DiagnosticRecorder.get(app).event("tts_error",e.javaClass.simpleName);withContext(Dispatchers.Main){if(token==generation.get()&&!closed)listener.onError("Ошибка локального синтеза: ${e.javaClass.simpleName}. Текст ответа доступен на экране.")}}
+   }catch(e:CancellationException){DiagnosticRecorder.get(app).event("tts_cancelled","generation=$token")}catch(e:Exception){DiagnosticRecorder.get(app).event("tts_error",android.util.Log.getStackTraceString(e));withContext(Dispatchers.Main){if(token==generation.get()&&!closed)listener.onError("Ошибка локального синтеза: ${e.javaClass.simpleName}. Текст ответа доступен на экране.")}}
   }
  }
- private suspend fun play(pcm:ByteArray,rate:Int,token:Int,audioFile:String,speed:Float){
+ private suspend fun play(pcm:ByteArray,rate:Int,token:Int,audioFile:String){
   val min=AudioTrack.getMinBufferSize(rate,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4096)
   val t=AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
    .setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()).setBufferSizeInBytes(min).setTransferMode(AudioTrack.MODE_STREAM).build()
   track=t
   try {
    if(token!=generation.get())return
-   if(speed!=1f)t.playbackParams=PlaybackParams().setSpeed(speed).setPitch(1f)
    t.play();DiagnosticRecorder.get(app).event("playback_start",audioFile);var offset=0;var lastReport=0L
    while(offset<pcm.size&&token==generation.get()&&!closed){
     val n=t.write(pcm,offset,minOf(2048,pcm.size-offset),AudioTrack.WRITE_BLOCKING)
@@ -140,7 +156,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
- fun stop(){DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();synchronized(engineLock){engine?.stop()};val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
+ fun stop(){DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
  fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
  fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
 }
