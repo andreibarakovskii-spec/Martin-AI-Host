@@ -17,10 +17,15 @@ class FastVoiceEngine(dir:File):AutoCloseable {
    voiceStyle=File(dir,"voice.bin").absolutePath),
   numThreads=2,debug=false,provider="cpu")))
  init {if(tts.numSpeakers()!=10){tts.release();throw IllegalStateException("Неверное число голосов")}}
+ // Sherpa JNI looks up invoke(float[]): java.lang.Integer by its concrete signature.
+ // Kotlin 2.x indy lambdas only expose the erased invoke(Object), which aborts JNI.
+ class NativeCallback(private val cancelled:BooleanSupplier):(FloatArray)->Int {
+  override fun invoke(samples:FloatArray):Int=if(cancelled.asBoolean)0 else 1
+ }
  class Pcm(@JvmField val pcm16:ByteArray,@JvmField val sampleRate:Int)
  fun synthesize(text:String,voice:String,speed:Float,cancelled:BooleanSupplier):Pcm {
   val config=GenerationConfig(sid=speakerId(voice),speed=speed,numSteps=STEPS,silenceScale=.16f,extra=mapOf("lang" to "ru"))
-  val audio=tts.generateWithConfigAndCallback(text,config){if(cancelled.asBoolean)0 else 1}
+  val audio=tts.generateWithConfigAndCallback(text,config,NativeCallback(cancelled))
   if(cancelled.asBoolean)return Pcm(ByteArray(0),tts.sampleRate())
   val bytes=ByteArray(audio.samples.size*2)
   for(i in audio.samples.indices){val v=(audio.samples[i].coerceIn(-1f,1f)*32767).toInt();bytes[i*2]=v.toByte();bytes[i*2+1]=(v shr 8).toByte()}
