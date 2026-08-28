@@ -76,8 +76,9 @@ jobs:
             adb shell pidof com.imagine.martinhost.diagnostics
             adb shell am instrument -w -e class com.imagine.martinhost.FastVoiceSmokeTest com.imagine.martinhost.diagnostics.test/androidx.test.runner.AndroidJUnitRunner > native-test.txt
             cat native-test.txt
-            grep -q "OK (1 test)" native-test.txt
             adb logcat -d > logcat.txt
+            grep -E "FastVoiceSmoke|Fatal signal|FATAL EXCEPTION|sherpa|onnx|Abort message" logcat.txt || true
+            grep -q "OK (1 test)" native-test.txt
             if grep -q 'FATAL EXCEPTION' logcat.txt; then exit 1; fi
             adb exec-out screencap -p > voice-orb-screen.png
       - uses: actions/upload-artifact@v4
