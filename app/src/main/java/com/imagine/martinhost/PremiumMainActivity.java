@@ -488,7 +488,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         super.onResume();
         DiagnosticRecorder.get(this).event("activity_resume", "main");
         refreshStatus();
-        if (neural != null && !neuralReady) neural.prepare();
+        if (neural != null && (!neuralReady || !neural.isReady())) neural.prepare();
         startFaceTrackerIfAllowed();
     }
 
@@ -504,7 +504,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     }
 
     private void cancelCurrent(){DiagnosticRecorder.get(this).event("dialogue_cancel","session="+session);session++;visualQuestion=null;PartyMusic.get(this).stopClip();queuedSpeech=null;pendingClip=null;if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
-    @Override protected void onPause(){super.onPause();DiagnosticRecorder.get(this).event("activity_pause","main");if(audio!=null)stopAudio();if(faceTracker!=null)faceTracker.stop();}
+    @Override protected void onPause(){super.onPause();DiagnosticRecorder.get(this).event("activity_pause","main");if(audio!=null)stopAudio();if(faceTracker!=null)faceTracker.stop();if(neural!=null){neural.releaseModel();neuralReady=false;}}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleIntent(i);}
     private void handleIntent(Intent i){if(i!=null&&i.hasExtra("game_id")){String id=i.getStringExtra("game_id");i.removeExtra("game_id");cancelCurrent();runDirectorAction(director.startGame(id));}}
     private void textInput(){android.widget.EditText e=new android.widget.EditText(this);e.setHint("Реплика, ответ или имя гостя");new android.app.AlertDialog.Builder(this).setTitle("Сказать ведущему текстом").setView(e).setPositiveButton("Отправить",(d,w)->{cancelCurrent();handleTranscript(e.getText().toString());}).setNegativeButton("Отмена",null).show();}

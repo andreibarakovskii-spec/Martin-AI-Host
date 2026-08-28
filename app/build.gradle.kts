@@ -11,8 +11,8 @@ android {
         manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Martin — тест диалога" else "Martin AI Host"
         minSdk = 31
         targetSdk = 36
-        versionCode = 91
-        versionName = "0.9.1-diagnostics"
+        versionCode = 92
+        versionName = "0.9.2-local-voices"
     }
     sourceSets.getByName("main") {
         assets.exclude("martin*")

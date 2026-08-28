@@ -53,10 +53,10 @@ public final class SettingsActivity extends Activity {
         Button diag=btn("ДИАГНОСТИКА: ЛОГ + АУДИО");diag.setOnClickListener(v->startActivity(new android.content.Intent(this,DiagnosticsActivity.class)));root.addView(diag);
 
         root.addView(tv("ГОЛОС МАРТИНА", 13, 0xFF8B5CF6));
-        voiceStatus = tv("Нейроголос Supertonic хранится локально на телефоне. Загрузка около 380 МБ. Кнопка ниже произнесёт проверочную фразу. Системный голос не подставляется незаметно.", 14, 0xFFB8BFCC);
+        voiceStatus = tv("Бесплатная локальная озвучка: 5 мужских и 5 женских голосов. Выбор, прослушивание и скорость речи. Все голоса используют одну загруженную модель.", 14, 0xFFB8BFCC);
         root.addView(voiceStatus);
-        voiceButton = btn("⬇ СКАЧАТЬ / ПРОВЕРИТЬ МОДЕЛЬ ГОЛОСА");
-        voiceButton.setOnClickListener(v -> downloadVoiceModel());
+        voiceButton = btn("ВЫБРАТЬ И ПРОСЛУШАТЬ ГОЛОС");
+        voiceButton.setOnClickListener(v -> startActivity(new android.content.Intent(this,LocalVoicesActivity.class)));
         root.addView(voiceButton);
 
         Button projector = btn(projectorLabel());
