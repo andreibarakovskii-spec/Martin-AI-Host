@@ -3,6 +3,28 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Official multi-ABI Android package with statically linked ONNX Runtime.
+val sherpaAar = layout.buildDirectory.file("verified-deps/sherpa-onnx-1.13.2.aar")
+val fetchSherpa = tasks.register("fetchSherpa") {
+    val checksum = "9b2a290b8c7f31bd0aba35abb4628e87fe8d0eb71796a98aa12f3acd089ceaed"
+    inputs.property("sha256", checksum)
+    outputs.file(sherpaAar)
+    doLast {
+        val out = sherpaAar.get().asFile
+        out.parentFile.mkdirs()
+        val tmp = java.io.File(out.parentFile, out.name + ".part")
+        try {
+            val connection = java.net.URI("https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-static-link-onnxruntime-1.13.2.aar").toURL().openConnection()
+            connection.connectTimeout = 30000
+            connection.readTimeout = 60000
+            connection.getInputStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+            val actual = java.security.MessageDigest.getInstance("SHA-256").digest(tmp.readBytes()).joinToString("") { "%02x".format(it) }
+                       check(actual == checksum) { "Sherpa AAR checksum mismatch" }
+            java.nio.file.Files.move(tmp.toPath(), out.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } finally { tmp.delete() }
+    }
+}
+
 android {
     namespace = "com.imagine.martinhost"
     compileSdk = 36
@@ -14,6 +36,9 @@ android {
         testInstrumentationRunner = "android.test.InstrumentationTestRunner"
         versionCode = 93
         versionName = "0.9.3-fast-voice"
+    }
+    System.getenv("MARTIN_DEBUG_KEYSTORE")?.let { keyPath ->
+        signingConfigs.getByName("debug") { storeFile = file(keyPath) }
     }
     sourceSets.getByName("main") {
         assets.exclude("martin*")
@@ -30,7 +55,7 @@ android {
 }
 
 dependencies {
-    implementation("com.xdcobra.sherpa:sherpa-onnx:1.13.2-1:java@aar")
+    implementation(files(sherpaAar).builtBy(fetchSherpa))
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.fragment:fragment:1.8.9")
