@@ -8,6 +8,15 @@ public class FastVoiceTest {
   assertEquals(Integer.valueOf(1),callback.invoke(new float[0]));cancelled.set(true);
   assertEquals(Integer.valueOf(0),callback.invoke(new float[0]));
  }
+ @Test public void russianLettersReachModelInReferenceNormalization(){
+  assertEquals("Андреи\u0306, е\u0308лка и и\u0306огурт.",FastVoiceEngine.normalizeText("Андрей, ёлка и йогурт."));
+  String text=FastVoiceEngine.normalizeText("С днём рождения! Йога, ёж.");
+  assertEquals(text,FastVoiceEngine.normalizeText(text));
+ }
+ @Test public void shortReplyUsesOneBufferWithoutDroppingPunctuation(){
+  String text="Привет, Андрей! Как настроение?";
+  assertEquals(Collections.singletonList(text),SpeechChunks.split(text));
+ }
  @Test public void voiceIdsFollowUpstreamSortedStyles(){
   for(int i=1;i<=5;i++){assertEquals(i-1,FastVoiceEngine.speakerId("F"+i));assertEquals(i+4,FastVoiceEngine.speakerId("M"+i));}
   assertEquals(5,FastVoiceEngine.speakerId("invalid"));

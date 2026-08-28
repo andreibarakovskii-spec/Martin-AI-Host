@@ -57,6 +57,9 @@ public final class GroqTranscriber {
                 try (OutputStream out = c.getOutputStream()) {
                     writeField(out, boundary, "model", model);
                     writeField(out, boundary, "language", "ru");
+                    writeField(out, boundary, "temperature", "0");
+                    writeField(out, boundary, "response_format", "verbose_json");
+                    writeField(out, boundary, "prompt", recognitionContext());
                     out.write(("--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n").getBytes(StandardCharsets.UTF_8));
                     out.write(wav);
                     out.write(("\r\n--"+boundary+"--\r\n").getBytes(StandardCharsets.UTF_8));
@@ -68,7 +71,14 @@ public final class GroqTranscriber {
                 String raw = is == null ? "" : new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 if (code < 200 || code >= 300) throw new IllegalStateException("Whisper API " + code + ": " + raw);
                                if(token!=generation.get())return;
-                String text = new JSONObject(raw).optString("text", "").trim();
+                JSONObject result = new JSONObject(raw);
+                // Keep confidence/timing for diagnosis, not as an automatic name rewrite.
+                org.json.JSONArray segments=result.optJSONArray("segments");
+                if(segments!=null)for(int i=0;i<segments.length();i++){
+                    JSONObject seg=segments.optJSONObject(i);if(seg==null)continue;
+                    DiagnosticRecorder.get(context).event("stt_segment","start="+seg.optDouble("start")+";end="+seg.optDouble("end")+";avg_logprob="+seg.optDouble("avg_logprob")+";no_speech_prob="+seg.optDouble("no_speech_prob")+";compression_ratio="+seg.optDouble("compression_ratio")+";text="+seg.optString("text"));
+                }
+                String text = result.optString("text", "").trim();
                 if (text.isBlank()) {DiagnosticRecorder.get(context).event("stt_empty","");callback.onError("Речь не распознана");}
                 else {DiagnosticRecorder.get(context).event("stt_result",text);callback.onText(text);}
             } catch (Exception e) {
@@ -79,6 +89,16 @@ public final class GroqTranscriber {
                 if(connection==c)connection=null;
             }
         });
+    }
+
+    private String recognitionContext() {
+        // Vocabulary only; no private guest facts or fabricated speaker identity.
+        StringBuilder names=new StringBuilder("Андрей, Катя, Мартин");
+        for(GuestStore.Guest guest:new GuestStore(context).load()){
+            String name=guest.name.replaceAll("[^\\p{L} -]", "").trim();
+            if(!name.isEmpty() && names.length()+name.length()<160)names.append(", ").append(name);
+        }
+        return "Разговор на русском языке. Имена: "+names+". День рождения, музыка, колонка, зарядка, игры, конкурсы.";
     }
 
     private static void writeField(OutputStream out, String boundary, String name, String value) throws IOException {

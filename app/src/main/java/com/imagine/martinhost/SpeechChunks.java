@@ -4,6 +4,10 @@ import java.util.*;
 public final class SpeechChunks {
  public static List<String> split(String text){
   List<String> result=new ArrayList<>();
+  // Keep short conversational replies in one PCM buffer, including punctuation.
+  // Long replies retain bounded prefetch; never truncate the requested text.
+  String compact=text.trim();
+  if(!compact.isEmpty() && compact.length()<=120){result.add(compact);return result;}
   for(String sentence:text.trim().split("(?<=[.!?…])\\s+")){
    String rest=sentence.trim();
    while(rest.length()>160){

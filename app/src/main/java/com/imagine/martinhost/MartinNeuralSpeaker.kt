@@ -85,7 +85,9 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
     val clean=text.replace(Regex("<[^>]+>"),"").replace(Regex("\\s+")," ").trim()
     if(clean.isBlank()){withContext(Dispatchers.Main){if(token==generation.get())listener.onDone()};return@enqueue}
     val sentences=SpeechChunks.split(clean)
+    DiagnosticRecorder.get(app).event("tts_chunks","count=${sentences.size};short_reply_buffer=${sentences.size==1};unicode=NFKD")
     var started=false
+    var lastPlaybackEnd=0L
     // At most one future chunk. Native work and playback may overlap, but model
     // ownership stays with this operation until every child has completed.
     coroutineScope {
@@ -94,19 +96,22 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
       val start=android.os.SystemClock.elapsedRealtime()
       DiagnosticRecorder.get(app).event("tts_synthesis_start",sentence)
       val pcm=e.synthesize(sentence,voice,speed){token!=generation.get()||closed}
-      DiagnosticRecorder.get(app).event("tts_synthesis_end","samples=${pcm.pcm16.size/2};rate=${pcm.sampleRate};ms=${android.os.SystemClock.elapsedRealtime()-start}")
+      DiagnosticRecorder.get(app).event("tts_synthesis_end","samples=${pcm.pcm16.size/2};rate=${pcm.sampleRate};ms=${android.os.SystemClock.elapsedRealtime()-start};audio_ms=${pcm.pcm16.size*500L/pcm.sampleRate}")
       if(token!=generation.get()||closed)throw CancellationException()
       if(pcm.pcm16.isEmpty())throw IllegalStateException("Пустой результат синтеза")
       pcm
      }
      var pending=async{ synthesize(sentences[0]) }
      for(i in sentences.indices){
+      val waitStart=android.os.SystemClock.elapsedRealtime()
       val pcm=pending.await()
+      DiagnosticRecorder.get(app).event("tts_buffer_wait","chunk=$i;wait_ms=${android.os.SystemClock.elapsedRealtime()-waitStart};since_last_playback_ms=${if(lastPlaybackEnd==0L)0L else android.os.SystemClock.elapsedRealtime()-lastPlaybackEnd}")
       if(token!=generation.get()||closed)throw CancellationException()
       if(i+1<sentences.size)pending=async{ synthesize(sentences[i+1]) }
       if(!started){withContext(Dispatchers.Main){if(token==generation.get())listener.onStart()};started=true}
       val audioFile=DiagnosticRecorder.get(app).audio("tts",pcm.pcm16,pcm.sampleRate,false)
       play(pcm.pcm16,pcm.sampleRate,token,audioFile)
+      lastPlaybackEnd=android.os.SystemClock.elapsedRealtime()
      }
     }
     withContext(Dispatchers.Main){if(token==generation.get()&&!closed){listener.onLevel(0f);listener.onDone()}}

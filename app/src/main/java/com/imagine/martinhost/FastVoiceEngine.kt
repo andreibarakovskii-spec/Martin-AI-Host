@@ -24,8 +24,8 @@ class FastVoiceEngine(dir:File):AutoCloseable {
  }
  class Pcm(@JvmField val pcm16:ByteArray,@JvmField val sampleRate:Int)
  fun synthesize(text:String,voice:String,speed:Float,cancelled:BooleanSupplier):Pcm {
-  val config=GenerationConfig(sid=speakerId(voice),speed=speed,numSteps=STEPS,silenceScale=.16f,extra=mapOf("lang" to "ru"))
-  val audio=tts.generateWithConfigAndCallback(text,config,NativeCallback(cancelled))
+  val config=GenerationConfig(sid=speakerId(voice),speed=speed,numSteps=STEPS,silenceScale=.16f,extra=mapOf("lang" to "ru", "silence_duration" to "0.16"))
+  val audio=tts.generateWithConfigAndCallback(normalizeText(text),config,NativeCallback(cancelled))
   if(cancelled.asBoolean)return Pcm(ByteArray(0),tts.sampleRate())
   val bytes=ByteArray(audio.samples.size*2)
   for(i in audio.samples.indices){val v=(audio.samples[i].coerceIn(-1f,1f)*32767).toInt();bytes[i*2]=v.toByte();bytes[i*2+1]=(v shr 8).toByte()}
@@ -34,6 +34,9 @@ class FastVoiceEngine(dir:File):AutoCloseable {
  override fun close(){tts.release()}
  companion object {
   const val STEPS=5
+  // Match the upstream Python frontend. The bundled C++ frontend only decomposes
+  // Latin characters, leaving Russian ё/й incompatible with the model indexer.
+  @JvmStatic fun normalizeText(text:String):String = java.text.Normalizer.normalize(text,java.text.Normalizer.Form.NFKD)
   // Upstream generate_voices_bin.py sorts F1..F5,M1..M5.
   @JvmStatic fun speakerId(voice:String):Int {val v=LocalVoiceProfiles.valid(voice);return (if(v[0]=='M')5 else 0)+(v[1]-'1')}
  }
