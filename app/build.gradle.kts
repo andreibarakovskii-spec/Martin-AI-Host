@@ -1,3 +1,9 @@
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,15 +18,15 @@ val fetchSherpa = tasks.register("fetchSherpa") {
     doLast {
         val out = sherpaAar.get().asFile
         out.parentFile.mkdirs()
-        val tmp = java.io.File(out.parentFile, out.name + ".part")
+        val tmp = File(out.parentFile, out.name + ".part")
         try {
-            val connection = java.net.URI("https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-static-link-onnxruntime-1.13.2.aar").toURL().openConnection()
+            val connection = URI("https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-static-link-onnxruntime-1.13.2.aar").toURL().openConnection()
             connection.connectTimeout = 30000
             connection.readTimeout = 60000
             connection.getInputStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
-            val actual = java.security.MessageDigest.getInstance("SHA-256").digest(tmp.readBytes()).joinToString("") { "%02x".format(it) }
-                       check(actual == checksum) { "Sherpa AAR checksum mismatch" }
-            java.nio.file.Files.move(tmp.toPath(), out.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            val actual = MessageDigest.getInstance("SHA-256").digest(tmp.readBytes()).joinToString("") { "%02x".format(it) }
+            check(actual == checksum) { "Sherpa AAR checksum mismatch" }
+            Files.move(tmp.toPath(), out.toPath(), StandardCopyOption.REPLACE_EXISTING)
         } finally { tmp.delete() }
     }
 }
