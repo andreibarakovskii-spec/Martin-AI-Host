@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.*
 import audio.soniqo.speech.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -25,6 +27,8 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  private val engineLock=Any()
  private val worker=Executors.newSingleThreadExecutor().asCoroutineDispatcher()
  private val scope=CoroutineScope(SupervisorJob()+worker)
+ private val operationLock=Mutex()
+ private fun enqueue(action:suspend ()->Unit){scope.launch{operationLock.withLock{action()}}}
  private val preparing=AtomicBoolean(false)
  private val generation=AtomicInteger(0)
  @Volatile private var engine: SpeechSynthesizer?=null
@@ -34,7 +38,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  fun isReady()=ready
  fun prepare(){
   if(closed||ready||!preparing.compareAndSet(false,true))return
-  scope.launch {
+  enqueue {
    try {
     ensureVoice(app.getSharedPreferences("martin",0).getString("local_voice","M1")?:"M1")
     if(!closed){ready=true;withContext(Dispatchers.Main){if(!closed)listener.onReady()}}
@@ -68,21 +72,21 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   if(text.isBlank()||closed)return
   stop();val token=generation.get();val voice=LocalVoiceProfiles.valid(requestedVoice);val speed=requestedSpeed.coerceIn(.85f,1.15f)
   DiagnosticRecorder.get(app).event("tts_request","generation=$token;provider=Supertonic;voice=$voice;playback_speed=$speed;emotion_controls=unsupported")
-  scope.launch {
+  enqueue {
    try {
-    if(token!=generation.get()||closed)return@launch
+    if(token!=generation.get()||closed)return@enqueue
     ensureVoice(voice)
     val e=engine?:throw IllegalStateException("Модель недоступна")
-    if(token!=generation.get()||closed)return@launch
+    if(token!=generation.get()||closed)return@enqueue
     val clean=text.replace(Regex("<[^>]+>"),"").replace(Regex("\\s+")," ").trim()
     val sentences=clean.split(Regex("(?<=[.!?…])\\s+"))
     var started=false
     for(sentence in sentences){
-     if(token!=generation.get()||closed)return@launch
+     if(token!=generation.get()||closed)return@enqueue
      DiagnosticRecorder.get(app).event("tts_synthesis_start",sentence)
      val pcm=e.synthesize(sentence,"ru")
      DiagnosticRecorder.get(app).event("tts_synthesis_end","samples=${pcm.pcm16.size/2};rate=${pcm.sampleRate}")
-     if(token!=generation.get()||closed)return@launch
+     if(token!=generation.get()||closed)return@enqueue
      if(pcm.pcm16.isEmpty())throw IllegalStateException("Пустой результат синтеза")
      if(!started){withContext(Dispatchers.Main){if(token==generation.get())listener.onStart()};started=true}
      val audioFile=DiagnosticRecorder.get(app).audio("tts",pcm.pcm16,pcm.sampleRate,false)
@@ -137,6 +141,6 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
  fun stop(){DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();synchronized(engineLock){engine?.stop()};val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
- fun releaseModel(){stop();ready=false;scope.launch{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
- fun close(){if(closed)return;closed=true;stop();ready=false;scope.launch{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
+ fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
+ fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
 }
