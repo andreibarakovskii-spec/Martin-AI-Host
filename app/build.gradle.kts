@@ -39,7 +39,7 @@ android {
         manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Martin — тест диалога" else "Martin AI Host"
         minSdk = 31
         targetSdk = 36
-        testInstrumentationRunner = "android.test.InstrumentationTestRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 93
         versionName = "0.9.3-fast-voice"
     }
@@ -66,6 +66,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.fragment:fragment:1.8.9")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 
     // Front-camera face tracking. Camera frames are processed locally and never stored.
     implementation("androidx.camera:camera-core:1.6.1")

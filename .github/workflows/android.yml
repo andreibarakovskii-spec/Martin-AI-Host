@@ -69,7 +69,7 @@ jobs:
             adb shell am start -W -n com.imagine.martinhost.diagnostics/com.imagine.martinhost.PremiumMainActivity
             sleep 15
             adb shell pidof com.imagine.martinhost.diagnostics
-            adb shell am instrument -w -e class com.imagine.martinhost.FastVoiceSmokeTest com.imagine.martinhost.diagnostics.test/android.test.InstrumentationTestRunner > native-test.txt
+            adb shell am instrument -w -e class com.imagine.martinhost.FastVoiceSmokeTest com.imagine.martinhost.diagnostics.test/androidx.test.runner.AndroidJUnitRunner > native-test.txt
             cat native-test.txt
             grep -q "OK (1 test)" native-test.txt
             adb logcat -d > logcat.txt

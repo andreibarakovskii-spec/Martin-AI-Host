@@ -1,12 +1,17 @@
 package com.imagine.martinhost;
-import android.test.InstrumentationTestCase;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import static org.junit.Assert.*;
 import android.os.SystemClock;
 import android.util.Log;
 import java.io.File;
 /** Real JNI/model smoke test. Emulator timing is not a handset benchmark. */
-public final class FastVoiceSmokeTest extends InstrumentationTestCase {
- public void testNativeSynthesis()throws Exception{
-  File dir=FastVoiceModel.ensure(getInstrumentation().getTargetContext().getFilesDir(),()->false,s->Log.i("FastVoiceSmoke",s));
+@RunWith(AndroidJUnit4.class)
+public final class FastVoiceSmokeTest {
+ @Test public void testNativeSynthesis()throws Exception{
+  File dir=FastVoiceModel.ensure(InstrumentationRegistry.getInstrumentation().getTargetContext().getFilesDir(),()->false,s->Log.i("FastVoiceSmoke",s));
   try(FastVoiceEngine e=new FastVoiceEngine(dir)){
    long t=SystemClock.elapsedRealtime();FastVoiceEngine.Pcm a=e.synthesize("Привет, Катя!","F5",1f,()->false);
    Log.i("FastVoiceSmoke","F5 synthesis_ms="+(SystemClock.elapsedRealtime()-t)+" samples="+a.pcm16.length/2);
