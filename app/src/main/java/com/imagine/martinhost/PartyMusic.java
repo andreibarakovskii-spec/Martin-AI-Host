@@ -36,14 +36,12 @@ public final class PartyMusic {
  public void ensureBackground(){if(tracks.isEmpty()||player!=null||!context.getSharedPreferences("martin",0).getBoolean("auto_music",true))return;requestedVolume=.28f;Track t=tracks.get(index%tracks.size());open(t.uri,"Фон: "+t.artist+" — "+t.title,0,null,true);}
  public void stopBackground(){if(backgroundMode)stop();}
 
+ static boolean isYandexClipUri(String uri){return uri!=null&&uri.startsWith("yandex:")&&uri.length()>"yandex:".length();}
  public void clip(String uri,Runnable done){
-  if(uri!=null&&uri.startsWith("yandex:")){
-   stop();clipDone=done;clipMode=true;yandexClip=true;backgroundMode=false;requestedVolume=1f;
-   String query=uri.substring("yandex:".length()).trim();
-   emit("Фрагмент из Яндекс Музыки");
+  if(isYandexClipUri(uri)){
+   stop();clipDone=done;clipMode=true;yandexClip=true;backgroundMode=false;requestedVolume=1f;String query=uri.substring("yandex:".length()).trim();emit("Фрагмент из Яндекс Музыки");
    boolean started=YandexMusicPlayback.playFragment(query,6,()->{if(clipMode&&yandexClip)finishClip();});
-   if(!started){emit("Яндекс Музыка не готова. Откройте раздел «Музыка» и войдите в аккаунт.");finishClip();}
-   return;
+   if(!started){emit("Яндекс Музыка не готова. Откройте раздел «Музыка» и войдите в аккаунт.");finishClip();}return;
   }
   requestedVolume=1f;open(uri,"Фрагмент для конкурса",6000,done,false);
  }

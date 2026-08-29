@@ -40,8 +40,8 @@ android {
         minSdk = 31
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 99
-        versionName = "0.9.9-sergey-yandex-melody"
+        versionCode = 100
+        versionName = "0.10.0-sergey-evening-memory"
     }
     System.getenv("MARTIN_DEBUG_KEYSTORE")?.let { keyPath ->
         signingConfigs.getByName("debug") { storeFile = file(keyPath) }
