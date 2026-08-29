@@ -5,7 +5,7 @@ import java.util.*;
 
 /** Explicit round/confirmation/scoring states; free chat cannot award points. */
 public final class PartyDirector {
- public enum Mode { FREE, RULES, WAIT_ANSWER, WAIT_NAME, RESULT }
+ public enum Mode { FREE, OFFER, RULES, WAIT_ANSWER, WAIT_NAME, RESULT }
  public static final class Action {
   public final String speech,state,gesture,emotion; public final boolean askAi;
   Action(String s,String st,String g,String e,boolean ai){speech=s;state=st;gesture=g;emotion=e;askAi=ai;}
@@ -22,6 +22,7 @@ public final class PartyDirector {
  private int index=-1,score=0;
  private String musicUri;
  private String suggestedGuest="";
+ private String offeredGame="";
  private final List<PartyMusic.Track> musicRounds=new ArrayList<>();
  public PartyDirector(Context c){context=c.getApplicationContext();guests=new GuestStore(c);scoreSink=name->{if(!guests.addScore(name,1)){List<GuestStore.Guest> all=guests.load();GuestStore.Guest g=new GuestStore.Guest();g.name=name;g.callName=name;g.score=1;g.participated=1;all.add(g);guests.save(all);}};}
  PartyDirector(ScoreSink sink){context=null;guests=null;scoreSink=sink;}
@@ -31,6 +32,7 @@ public final class PartyDirector {
  public void setSuggestedGuest(String name){suggestedGuest=name==null?"":name.trim();}
  private Action local(String s){return Action.local(s,"game","","curious");}
  public Action startChgk(){return startGame("chgk");}
+ public Action offerGame(String id){offeredGame=id;mode=Mode.OFFER;PartyGames.Game g=PartyGames.get(id);return local("Друзья, небольшая игровая пауза! Предлагаю «"+g.title+"». Играем?");}
  public Action startGame(String id){
   game=PartyGames.get(id);index=-1;score=0;round=null;musicUri=null;musicRounds.clear();
   if(id.equals("melody")||id.equals("time_machine")){
@@ -76,6 +78,7 @@ public final class PartyDirector {
    if(l.contains("тост"))return Action.ai("Скажи короткий тёплый тост для Кати и гостей без принуждения к алкоголю.","toast","","warm");
    return Action.ai(t,"talking","","neutral");
   }
+  if(mode==Mode.OFFER){if(PartyGames.matches(l,"да|играем|давай|поехали|согласны")){String id=offeredGame;offeredGame="";return startGame(id);}if(PartyGames.matches(l,"нет|не сейчас|потом|отмена")){offeredGame="";mode=Mode.FREE;return local("Хорошо, продолжаем музыку. Предложу игру позже.");}return local("Сыграем? Скажите «да» или «не сейчас».");}
   if(l.equals("правила")||l.equals("повтори правила"))return local(game.rules+" Когда готовы, скажите «начинаем».");
   if(l.equals("дальше")||l.equals("следующий")||l.equals("пропустить"))return next();
   if(l.equals("покажи ответ")||l.equals("не знаем")||l.equals("сдаемся"))return reveal();

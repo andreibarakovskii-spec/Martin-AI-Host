@@ -60,7 +60,8 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
  }
  override fun speak(text:String,emotion:String,energy:Float){
   val p=app.getSharedPreferences("martin",0)
-  speakInternal(text,p.getString("local_voice","M1")?:"M1",p.getFloat("local_voice_speed",1f))
+  val e=emotion.lowercase();val prosody=when{e.contains("excited")||e.contains("happy")||e.contains("playful")->1.05f;e.contains("warm")->.96f;e.contains("curious")->1.01f;else->1f}
+  speakInternal(text,p.getString("local_voice","M1")?:"M1",p.getFloat("local_voice_speed",1f)*prosody)
  }
  fun speak(text:String){speak(text,"neutral",.55f)}
  fun previewLocal(text:String,voice:String,speed:Float){speakInternal(text,voice,speed)}

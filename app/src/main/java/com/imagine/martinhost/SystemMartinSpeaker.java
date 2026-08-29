@@ -27,7 +27,7 @@ public final class SystemMartinSpeaker implements MartinSpeaker,TextToSpeech.OnI
   });
   ready=true;listener.onReady();
  }
- public void speak(String text,String emotion,float energy){if(!ready){listener.onError("Голос ещё не готов");return;}Bundle b=new Bundle();b.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME,1f);tts.speak(text,TextToSpeech.QUEUE_FLUSH,b,UUID.randomUUID().toString());}
+ public void speak(String text,String emotion,float energy){if(!ready){listener.onError("Голос ещё не готов");return;}float base=app.getSharedPreferences("martin",0).getFloat("system_voice_speed",1f),rate=base,pitch=1f;String e=emotion==null?"":emotion.toLowerCase(Locale.ROOT);if(e.contains("happy")||e.contains("excited")||e.contains("playful")){rate*=1.06f;pitch=1.07f;}else if(e.contains("warm")){rate*=.96f;pitch=.98f;}else if(e.contains("curious")){rate*=1.01f;pitch=1.03f;}tts.setSpeechRate(rate);tts.setPitch(pitch);DiagnosticRecorder.get(app).event("system_tts_prosody","emotion="+e+";rate="+rate+";pitch="+pitch);Bundle b=new Bundle();b.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME,1f);tts.speak(text,TextToSpeech.QUEUE_FLUSH,b,UUID.randomUUID().toString());}
  public void stop(){ui.removeCallbacks(pulse);if(tts!=null)tts.stop();}
  public void releaseModel(){stop();ready=false;if(tts!=null){tts.shutdown();tts=null;}}
  public void close(){closed=true;releaseModel();}
