@@ -13,7 +13,12 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -31,6 +36,10 @@ public final class YandexMusicClient {
         void onStarted(TrackInfo track);
         void onFinished(TrackInfo track);
         void onError(String message);
+    }
+    private static final class StreamCandidate {
+        final String infoUrl; final int bitrate; final boolean preview;
+        StreamCandidate(String infoUrl,int bitrate,boolean preview){this.infoUrl=infoUrl;this.bitrate=bitrate;this.preview=preview;}
     }
 
     private static final String PREFS="martin";
@@ -86,16 +95,20 @@ public final class YandexMusicClient {
         executor.execute(()->{
             try{
                 TrackInfo track=searchFirst(q);
-                String stream=streamUrl(track.id);
+                List<StreamCandidate> candidates=streamCandidates(track.id,fragmentSeconds>0);
+                if(candidates.isEmpty())throw new IllegalStateException("Нет совместимого MP3-потока");
+                String stream=streamUrl(candidates.get(0));
                 if(tokenGeneration!=generation)return;
-                main.post(()->prepareAndPlay(stream,track,fragmentSeconds,cb,tokenGeneration));
-            }catch(Exception e){
-                String msg=message(e);
-                DiagnosticRecorder.get(context).event("yandex_direct","resolve_error;"+msg);
-                if(msg.contains("HTTP 401")||msg.contains("HTTP 403"))clearToken();
-                if(tokenGeneration==generation)main.post(()->cb.onError(msg));
-            }
+                main.post(()->prepareAndPlay(stream,track,fragmentSeconds,cb,tokenGeneration,candidates,0));
+            }catch(Exception e){resolveError(e,cb,tokenGeneration);}
         });
+    }
+
+    private void resolveError(Exception e,Callback cb,int tokenGeneration){
+        String msg=message(e);
+        DiagnosticRecorder.get(context).event("yandex_direct","resolve_error;"+msg);
+        if(msg.contains("HTTP 401")||msg.contains("HTTP 403"))clearToken();
+        if(tokenGeneration==generation)main.post(()->cb.onError(msg));
     }
 
     private TrackInfo searchFirst(String query)throws Exception{
@@ -112,27 +125,29 @@ public final class YandexMusicClient {
         return new TrackInfo(t.optString("id"),t.optString("title",query),artist,t.optInt("durationMs",0));
     }
 
-    private String streamUrl(String trackId)throws Exception{
+    private List<StreamCandidate> streamCandidates(String trackId,boolean fragment)throws Exception{
         JSONObject root=getJson(API+"/tracks/"+URLEncoder.encode(trackId,StandardCharsets.UTF_8)+"/download-info",true);
         JSONArray variants=root.optJSONArray("result");
         if(variants==null||variants.length()==0)throw new IllegalStateException("Яндекс не вернул поток для трека");
-        JSONObject best=null;
+        ArrayList<StreamCandidate> out=new ArrayList<>();Set<String> seen=new HashSet<>();
         for(int i=0;i<variants.length();i++){
             JSONObject v=variants.getJSONObject(i);
             if(!"mp3".equalsIgnoreCase(v.optString("codec")))continue;
-            if(v.optBoolean("preview",false))continue;
-            if(best==null||v.optInt("bitrateInKbps",0)>best.optInt("bitrateInKbps",0))best=v;
+            String info=v.optString("downloadInfoUrl","");if(info.isBlank()||!seen.add(info))continue;
+            out.add(new StreamCandidate(info,v.optInt("bitrateInKbps",0),v.optBoolean("preview",false)));
         }
-        if(best==null){
-            for(int i=0;i<variants.length();i++){
-                JSONObject v=variants.getJSONObject(i);
-                if("mp3".equalsIgnoreCase(v.optString("codec"))){best=v;break;}
-            }
-        }
-        if(best==null)throw new IllegalStateException("Нет совместимого MP3-потока");
-        String infoUrl=best.optString("downloadInfoUrl","");
-        if(infoUrl.isBlank())throw new IllegalStateException("Яндекс не вернул downloadInfoUrl");
-        String[] info=parseDownloadInfo(getBytes(infoUrl,false));
+        out.sort(Comparator.comparingInt(c->candidateRank(fragment,c.preview,c.bitrate)));
+        return out;
+    }
+
+    static int candidateRank(boolean fragment,boolean preview,int bitrate){
+        int previewPenalty=fragment?(preview?0:10000):(preview?10000:0);
+        int b=bitrate<=0?192:bitrate;
+        return previewPenalty+Math.abs(b-192);
+    }
+
+    private String streamUrl(StreamCandidate candidate)throws Exception{
+        String[] info=parseDownloadInfo(getBytes(candidate.infoUrl,false));
         String host=info[0],path=info[1],ts=info[2],s=info[3];
         String payload=SIGN_SALT+(path.startsWith("/")?path.substring(1):path)+s;
         String sign=md5(payload);
@@ -158,9 +173,31 @@ public final class YandexMusicClient {
         return s.replace("&amp;","&").replace("&lt;","<").replace("&gt;",">").replace("&quot;","\"").replace("&apos;","'");
     }
 
-    private void prepareAndPlay(String stream,TrackInfo track,int fragmentSeconds,Callback cb,int tokenGeneration){
+    private void retryCandidate(TrackInfo track,int fragmentSeconds,Callback cb,int tokenGeneration,List<StreamCandidate> candidates,int next,String reason){
+        if(tokenGeneration!=generation)return;
+        if(next>=candidates.size()){
+            DiagnosticRecorder.get(context).event("yandex_direct","all_streams_failed;track="+track.label()+";reason="+reason);
+            cb.onError("Яндекс не отдал аудио после нескольких вариантов. Повторите команду через несколько секунд.");
+            return;
+        }
+        StreamCandidate candidate=candidates.get(next);
+        DiagnosticRecorder.get(context).event("yandex_direct","retry_stream;attempt="+(next+1)+";bitrate="+candidate.bitrate+";preview="+candidate.preview+";reason="+reason);
+        executor.execute(()->{
+            try{
+                String stream=streamUrl(candidate);
+                if(tokenGeneration!=generation)return;
+                main.post(()->prepareAndPlay(stream,track,fragmentSeconds,cb,tokenGeneration,candidates,next));
+            }catch(Exception e){
+                if(tokenGeneration==generation)main.post(()->retryCandidate(track,fragmentSeconds,cb,tokenGeneration,candidates,next+1,"resolve:"+message(e)));
+            }
+        });
+    }
+
+    private void prepareAndPlay(String stream,TrackInfo track,int fragmentSeconds,Callback cb,int tokenGeneration,List<StreamCandidate> candidates,int attempt){
         stopPlayerOnly(false);
         current=track;
+        StreamCandidate candidate=candidates.get(attempt);
+        DiagnosticRecorder.get(context).event("yandex_direct","stream_variant;attempt="+(attempt+1)+";bitrate="+candidate.bitrate+";preview="+candidate.preview);
         try{
             MediaPlayer p=new MediaPlayer();
             player=p;
@@ -169,19 +206,21 @@ public final class YandexMusicClient {
             p.setVolume(volume,volume);
             prepareTimeout=()->{
                 if(player==p&&tokenGeneration==generation){
-                    DiagnosticRecorder.get(context).event("yandex_direct","prepare_timeout;track="+track.label());
+                    DiagnosticRecorder.get(context).event("yandex_direct","prepare_timeout;track="+track.label()+";attempt="+(attempt+1));
                     stopPlayerOnly(false);
-                    cb.onError("Яндекс долго не отдаёт аудио. Переподключите аккаунт или попробуйте ещё раз.");
+                    retryCandidate(track,fragmentSeconds,cb,tokenGeneration,candidates,attempt+1,"prepare_timeout");
                 }
             };
-            main.postDelayed(prepareTimeout,18000);
+            main.postDelayed(prepareTimeout,attempt==0?8000L:10000L);
             p.setOnPreparedListener(mp->{
                 if(player!=mp||tokenGeneration!=generation)return;
                 if(prepareTimeout!=null){main.removeCallbacks(prepareTimeout);prepareTimeout=null;}
                 int start=0;
-                if(fragmentSeconds>0&&track.durationMs>45000){
-                    int max=Math.max(0,track.durationMs-fragmentSeconds*1000-12000);
-                    if(max>12000)start=12000+Math.abs(track.id.hashCode())%(max-12000+1);
+                if(fragmentSeconds>0){
+                    int duration=mp.getDuration();
+                    int max=Math.max(0,duration-fragmentSeconds*1000-1500);
+                    int min=Math.min(6000,max);
+                    if(max>min)start=min+Math.abs(track.id.hashCode())%Math.max(1,max-min+1);
                 }
                 final int seek=start;
                 Runnable begin=()->{
@@ -189,10 +228,11 @@ public final class YandexMusicClient {
                     try{
                         mp.start();
                         mp.setVolume(volume,volume);
-                        DiagnosticRecorder.get(context).event("yandex_direct","playing;track="+track.label()+";seek="+seek);
+                        DiagnosticRecorder.get(context).event("yandex_direct","playing;track="+track.label()+";seek="+seek+";attempt="+(attempt+1));
                         cb.onStarted(track);
                         if(fragmentSeconds>0){
                             fragmentStop=()->{
+                                fragmentStop=null;
                                 if(player==mp&&tokenGeneration==generation){
                                     try{mp.pause();}catch(Exception ignored){}
                                     DiagnosticRecorder.get(context).event("yandex_direct","fragment_done;track="+track.label());
@@ -201,14 +241,33 @@ public final class YandexMusicClient {
                             };
                             main.postDelayed(fragmentStop,fragmentSeconds*1000L);
                         }
-                    }catch(Exception e){cb.onError(message(e));}
+                    }catch(Exception e){
+                        stopPlayerOnly(false);
+                        retryCandidate(track,fragmentSeconds,cb,tokenGeneration,candidates,attempt+1,"start:"+message(e));
+                    }
                 };
                 if(start>0){mp.setOnSeekCompleteListener(x->begin.run());mp.seekTo(start,MediaPlayer.SEEK_CLOSEST_SYNC);}else begin.run();
             });
-            p.setOnCompletionListener(mp->{if(player==mp&&tokenGeneration==generation){DiagnosticRecorder.get(context).event("yandex_direct","completed;track="+track.label());cb.onFinished(track);}});
-            p.setOnErrorListener((mp,what,extra)->{if(prepareTimeout!=null){main.removeCallbacks(prepareTimeout);prepareTimeout=null;}DiagnosticRecorder.get(context).event("yandex_direct","media_error="+what+"/"+extra);cb.onError("Ошибка воспроизведения Яндекс Музыки: "+what+"/"+extra);return true;});
+            p.setOnCompletionListener(mp->{
+                if(player==mp&&tokenGeneration==generation){
+                    if(fragmentStop!=null){main.removeCallbacks(fragmentStop);fragmentStop=null;}
+                    DiagnosticRecorder.get(context).event("yandex_direct","completed;track="+track.label());
+                    cb.onFinished(track);
+                }
+            });
+            p.setOnErrorListener((mp,what,extra)->{
+                if(player!=mp||tokenGeneration!=generation)return true;
+                if(prepareTimeout!=null){main.removeCallbacks(prepareTimeout);prepareTimeout=null;}
+                DiagnosticRecorder.get(context).event("yandex_direct","media_error="+what+"/"+extra+";attempt="+(attempt+1));
+                stopPlayerOnly(false);
+                retryCandidate(track,fragmentSeconds,cb,tokenGeneration,candidates,attempt+1,"media_error="+what+"/"+extra);
+                return true;
+            });
             p.prepareAsync();
-        }catch(Exception e){cb.onError(message(e));}
+        }catch(Exception e){
+            stopPlayerOnly(false);
+            retryCandidate(track,fragmentSeconds,cb,tokenGeneration,candidates,attempt+1,"prepare:"+message(e));
+        }
     }
 
     public void pause(){if(player!=null)try{player.pause();}catch(Exception ignored){}}
@@ -225,7 +284,7 @@ public final class YandexMusicClient {
     private byte[] getBytes(String url,boolean auth)throws Exception{
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
         try{
-            c.setConnectTimeout(15000);c.setReadTimeout(25000);c.setRequestProperty("Accept","application/json, text/xml, */*");c.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9");c.setRequestProperty("User-Agent","SergeyAIHost/0.10.3 Android");
+            c.setConnectTimeout(12000);c.setReadTimeout(20000);c.setRequestProperty("Accept","application/json, text/xml, */*");c.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9");c.setRequestProperty("User-Agent","SergeyAIHost/0.10.4 Android");
             if(auth)c.setRequestProperty("Authorization","OAuth "+token());
             int code=c.getResponseCode();
             InputStream in=code>=200&&code<300?c.getInputStream():c.getErrorStream();
