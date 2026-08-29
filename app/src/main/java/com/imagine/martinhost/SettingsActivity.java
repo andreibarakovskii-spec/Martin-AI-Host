@@ -2,6 +2,7 @@ package com.imagine.martinhost;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.InputType;
@@ -14,17 +15,20 @@ public final class SettingsActivity extends Activity {
     private GuestStore store;
     private LinearLayout guestList;
     private List<GuestStore.Guest> guests;
+    private Button yandex;
 
     @Override public void onCreate(Bundle b){ super.onCreate(b); store=new GuestStore(this); guests=new ArrayList<>(store.load()); buildUi(); }
+    @Override protected void onResume(){super.onResume();if(yandex!=null)yandex.setText(yandexLabel());}
 
     private void buildUi(){
         ScrollView scroll=new ScrollView(this); scroll.setBackgroundColor(0xFF0F1014);
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(22,24,22,40); scroll.addView(root);
         TextView h=tv("⚙ НАСТРОЙКИ МАРТИНА",28,Color.WHITE); h.setGravity(Gravity.CENTER); root.addView(h);
-        root.addView(tv("Подготовьте Мартина к вечеринке: гости, факты, границы, API и режим проектора.",15,0xFFB9BECA));
+        root.addView(tv("Подготовьте Мартина к вечеринке: гости, факты, границы, AI, музыка и режим проектора.",15,0xFFB9BECA));
 
         Button api=btn("🔑 xAI API key"); api.setOnClickListener(v->apiDialog()); root.addView(api);
-        Button projector=btn(projectorLabel()); projector.setOnClickListener(v->{ boolean on=!getPreferences(0).getBoolean("projector",false); getPreferences(0).edit().putBoolean("projector",on).apply(); projector.setText(projectorLabel()); }); root.addView(projector);
+        yandex=btn(yandexLabel()); yandex.setOnClickListener(v->yandexAction()); root.addView(yandex);
+        Button projector=btn(projectorLabel()); projector.setOnClickListener(v->{ boolean on=!getSharedPreferences("martin",0).getBoolean("projector",false); getSharedPreferences("martin",0).edit().putBoolean("projector",on).apply(); projector.setText(projectorLabel()); }); root.addView(projector);
 
         root.addView(tv("ГОСТИ",14,0xFFFFD166));
         guestList=new LinearLayout(this); guestList.setOrientation(LinearLayout.VERTICAL); root.addView(guestList); renderGuests();
@@ -33,7 +37,14 @@ public final class SettingsActivity extends Activity {
         setContentView(scroll);
     }
 
-    private String projectorLabel(){ return getPreferences(0).getBoolean("projector",false)?"📽 ПРОЕКТОР: ПОДКЛЮЧЁН":"📱 ПРОЕКТОР: ВЫКЛЮЧЕН"; }
+    private String projectorLabel(){ return getSharedPreferences("martin",0).getBoolean("projector",false)?"📽 ПРОЕКТОР: ПОДКЛЮЧЁН":"📱 ПРОЕКТОР: ВЫКЛЮЧЕН"; }
+    private String yandexLabel(){return new YandexMusicClient(this).hasToken()?"🎵 ЯНДЕКС МУЗЫКА: ПОДКЛЮЧЕНА":"🎵 ВОЙТИ В ЯНДЕКС МУЗЫКУ";}
+    private void yandexAction(){
+        YandexMusicClient music=new YandexMusicClient(this);
+        if(!music.hasToken()){startActivity(new Intent(this,YandexAuthActivity.class));return;}
+        new AlertDialog.Builder(this).setTitle("Яндекс Музыка").setMessage("Аккаунт уже подключён. Выйти и удалить локальный OAuth-токен?")
+                .setPositiveButton("Выйти",(d,w)->{music.clearToken();yandex.setText(yandexLabel());}).setNegativeButton("Отмена",null).show();
+    }
 
     private void renderGuests(){
         guestList.removeAllViews();
