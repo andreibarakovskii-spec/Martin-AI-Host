@@ -13,6 +13,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:hardwareAccelerated="true">
+        <activity android:name=".YandexAuthActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".YandexMusicWebActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".LocalVoicesActivity" android:exported="false" />
         <activity android:name=".SystemVoicesActivity" android:exported="false" />
