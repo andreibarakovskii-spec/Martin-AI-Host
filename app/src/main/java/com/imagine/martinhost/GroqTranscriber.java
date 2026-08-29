@@ -5,6 +5,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
@@ -14,12 +15,24 @@ public final class GroqTranscriber {
     public interface Callback { void onText(String text); void onError(String error); }
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static volatile String lastAcceptedText="";
 
     private final java.util.concurrent.atomic.AtomicInteger generation=new java.util.concurrent.atomic.AtomicInteger();
     private volatile HttpURLConnection connection;
     public void cancel(){generation.incrementAndGet();HttpURLConnection c=connection;if(c!=null)c.disconnect();}
 
     public GroqTranscriber(Context context) { this.context = context.getApplicationContext(); }
+    static String lastAcceptedText(){return lastAcceptedText;}
+
+    static boolean shouldDropTranscript(String text,boolean musicPlaying){
+        String l=text==null?"":text.toLowerCase(Locale.ROOT).replace('ё','е').trim();
+        if(l.isBlank())return false;
+        if(l.contains("редактор субтитров")||l.contains("корректор а.")||l.contains("корректор а "))return true;
+        if(l.startsWith("субтитры сделал")||l.startsWith("субтитры создал")||l.startsWith("продолжение следует")||l.startsWith("спасибо за просмотр"))return true;
+        // Under music Whisper can echo the vocabulary prompt itself instead of speech.
+        if(musicPlaying&&(l.startsWith("имена,")||l.startsWith("имена:")||l.equals("имена")||l.startsWith("возможные имена")))return true;
+        return false;
+    }
 
     public void transcribe(byte[] wav, Callback callback) {
         if (wav == null || wav.length <= 44) {
@@ -70,7 +83,7 @@ public final class GroqTranscriber {
                 InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
                 String raw = is == null ? "" : new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 if (code < 200 || code >= 300) throw new IllegalStateException("Whisper API " + code + ": " + raw);
-                               if(token!=generation.get())return;
+                if(token!=generation.get())return;
                 JSONObject result = new JSONObject(raw);
                 // Keep confidence/timing for diagnosis, not as an automatic name rewrite.
                 org.json.JSONArray segments=result.optJSONArray("segments");
@@ -80,7 +93,13 @@ public final class GroqTranscriber {
                 }
                 String text = result.optString("text", "").trim();
                 if (text.isBlank()) {DiagnosticRecorder.get(context).event("stt_empty","");callback.onError("Речь не распознана");}
-                else {DiagnosticRecorder.get(context).event("stt_result",text);callback.onText(text);}
+                else if(shouldDropTranscript(text,YandexMusicClient.get(context).isPlaying())){
+                    DiagnosticRecorder.get(context).event("stt_filtered","playback_hallucination;"+text);
+                    callback.onText("");
+                }else{
+                    lastAcceptedText=text;
+                    DiagnosticRecorder.get(context).event("stt_result",text);callback.onText(text);
+                }
             } catch (Exception e) {
                 DiagnosticRecorder.get(context).event("stt_error",e.getClass().getSimpleName());
                 if(token==generation.get())callback.onError(e.getMessage() == null ? e.toString() : e.getMessage());
@@ -93,12 +112,13 @@ public final class GroqTranscriber {
 
     private String recognitionContext() {
         // Vocabulary only; no private guest facts or fabricated speaker identity.
-        StringBuilder names=new StringBuilder("Андрей, Катя, Сергей");
+        StringBuilder names=new StringBuilder("Андрей, Катя");
         for(GuestStore.Guest guest:new GuestStore(context).load()){
             String name=guest.name.replaceAll("[^\\p{L} -]", "").trim();
+            if(name.equalsIgnoreCase("Сергей"))continue;
             if(!name.isEmpty() && names.length()+name.length()<160)names.append(", ").append(name);
         }
-        return "Разговор на русском языке. Имена: "+names+". День рождения, музыка, колонка, зарядка, игры, конкурсы.";
+        return "Русская речь на домашнем празднике. Ведущего зовут Сергей. В речи могут встречаться гости "+names+". Темы: день рождения, музыка, колонка, зарядка, игры, конкурсы.";
     }
 
     private static void writeField(OutputStream out, String boundary, String name, String value) throws IOException {
