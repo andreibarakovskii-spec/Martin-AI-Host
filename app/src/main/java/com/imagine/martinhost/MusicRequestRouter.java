@@ -8,15 +8,18 @@ import java.util.regex.Pattern;
 /** Strict voice-command router for direct Yandex Music playback. */
 final class MusicRequestRouter {
  static final String DEFAULT_PARTY_QUERY="хиты 90-х 2000-х для вечеринки";
- private static final Pattern COMMAND=Pattern.compile("(?iu)^(?:сергей[\\s,.:;!-]+)?(?:пожалуйста[\\s,.:;!-]+)?(?:включи|включай|поставь|сыграй|запусти)(?:\\s+(?:песню|трек|музыку))?(?:\\s+(.+?))?[.!?]*$");
+ private static final Pattern COMMAND=Pattern.compile("(?iu)^(?:сергей[\\s,.:;!-]+)?(?:пожалуйста[\\s,.:;!-]+)?(?:включи|включай|ключи|поставь|сыграй|запусти)(?:[\\s,.:;!-]+(?:песню|трек|музыку))?(?:[\\s,.:;!-]+(.+?))?[.!?]*$");
 
  static String extract(String raw){
   String s=raw==null?"":raw.trim();if(s.isBlank())return "";
   String l=s.toLowerCase(Locale.ROOT).replace('ё','е');
   if(l.matches(".*\\bне\\s+(?:включил|включила|включай|включи|поставил|поставь|запустил|запусти|сыграл|сыграй)\\b.*"))return "";
   Matcher m=COMMAND.matcher(s);if(!m.matches())return "";
-  String q=m.group(1)==null?"":m.group(1).replaceAll("[.!?]+$","").trim();
-  if(q.isBlank())return DEFAULT_PARTY_QUERY;if(q.length()<2)return "";return q;
+  String q=m.group(1)==null?"":m.group(1).replaceAll("^[,.:;!\\s-]+|[.!?]+$","").trim();
+  if(q.isBlank())return DEFAULT_PARTY_QUERY;
+  q=q.replaceAll("(?iu)\\bшады\\b","Шадэ");
+  if(q.toLowerCase(Locale.ROOT).replace('ё','е').contains("танцует под шад"))return "Шадэ By Индия Xcho МОТ";
+  if(q.length()<2)return "";return q;
  }
 
  static boolean play(Context c,String q){
