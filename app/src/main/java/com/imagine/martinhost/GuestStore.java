@@ -24,7 +24,7 @@ public final class GuestStore {
     );
 
     private final Context context;
-    public GuestStore(Context context){ this.context=context.getApplicationContext(); migrateBogusCameraNames(); }
+    public GuestStore(Context context){ this.context=context.getApplicationContext(); migrateBogusCameraNames();migrateFalseHostBinding104(); }
 
     public List<Guest> load(){
         ArrayList<Guest> out=new ArrayList<>();
@@ -60,6 +60,15 @@ public final class GuestStore {
         boolean changed=all.removeIf(g->BOGUS_CAMERA_NAMES.contains(normal(g.name))||BOGUS_CAMERA_NAMES.contains(normal(g.callName)));
         if(changed)save(all);
         p.edit().putBoolean("guest_identity_fix_101",true).apply();
+    }
+
+    private void migrateFalseHostBinding104(){
+        var p=context.getSharedPreferences("martin",0);
+        if(p.getBoolean("guest_identity_fix_104",false))return;
+        List<Guest> all=loadWithoutMigration();
+        boolean changed=all.removeIf(g->normal(g.name).equals("сергей")&&g.score==0&&g.participated==0&&g.relation.isBlank()&&g.facts.isBlank()&&g.boundaries.isBlank());
+        if(changed)save(all);
+        p.edit().putBoolean("guest_identity_fix_104",true).apply();
     }
 
     private List<Guest> loadWithoutMigration(){
@@ -111,14 +120,19 @@ public final class GuestStore {
         return s.matches("[\\p{L}Ёё-]{2,32}");
     }
 
+    private static boolean explicitlySpokenNow(String spokenName){
+        String explicit=GuestIdentity.explicitName(GroqTranscriber.lastAcceptedText());
+        return !explicit.isBlank()&&normal(explicit).equals(normal(spokenName));
+    }
+
     public String canonicalName(String spokenName){
-        if(spokenName==null)return "";String q=normal(spokenName);
+        if(spokenName==null||!explicitlySpokenNow(spokenName))return "";String q=normal(spokenName);
         for(Guest g:load())if(normal(g.name).equals(q)||normal(g.callName).equals(q))return g.callName.isBlank()?g.name:g.callName;
         return isPlausibleNewName(spokenName)?spokenName.trim():"";
     }
 
     public void ensureGuest(String name){
-        if(!isPlausibleNewName(name))return;
+        if(!isPlausibleNewName(name)||!explicitlySpokenNow(name))return;
         String q=normal(name);List<Guest> all=load();for(Guest g:all)if(normal(g.name).equals(q)||normal(g.callName).equals(q))return;
         Guest g=new Guest();g.name=name.trim();g.callName=g.name;all.add(g);save(all);
     }
