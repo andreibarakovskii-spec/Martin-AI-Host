@@ -94,7 +94,7 @@ public final class YandexMusicClient {
         DiagnosticRecorder.get(context).event("yandex_direct","resolve_start;query="+q+";fragment="+fragmentSeconds);
         executor.execute(()->{
             try{
-                TrackInfo track=searchFirst(q);
+                TrackInfo track=searchFirst(q,fragmentSeconds>0);
                 List<StreamCandidate> candidates=streamCandidates(track.id,fragmentSeconds>0);
                 if(candidates.isEmpty())throw new IllegalStateException("Нет совместимого MP3-потока");
                 String stream=streamUrl(candidates.get(0));
@@ -111,18 +111,54 @@ public final class YandexMusicClient {
         if(tokenGeneration==generation)main.post(()->cb.onError(msg));
     }
 
-    private TrackInfo searchFirst(String query)throws Exception{
+    private TrackInfo searchFirst(String query,boolean strictQuizMatch)throws Exception{
         String url=API+"/search?text="+URLEncoder.encode(query,StandardCharsets.UTF_8)+"&type=track&page=0&nocorrect=false";
         JSONObject root=getJson(url,true);
         JSONObject result=root.optJSONObject("result");
         JSONObject tracks=result==null?null:result.optJSONObject("tracks");
         JSONArray arr=tracks==null?null:tracks.optJSONArray("results");
         if(arr==null||arr.length()==0)throw new IllegalStateException("Не нашёл трек «"+query+"»");
-        JSONObject t=arr.getJSONObject(0);
+        TrackInfo first=trackInfo(arr.getJSONObject(0));
+        if(!strictQuizMatch)return first;
+        TrackInfo best=first;int bestScore=trackMatchScore(query,first.title,first.artist);
+        int limit=Math.min(arr.length(),20);
+        for(int i=1;i<limit;i++){
+            TrackInfo candidate=trackInfo(arr.getJSONObject(i));
+            int score=trackMatchScore(query,candidate.title,candidate.artist);
+            if(score>bestScore){best=candidate;bestScore=score;}
+        }
+        DiagnosticRecorder.get(context).event("yandex_direct","quiz_match;query="+query+";track="+best.label()+";score="+bestScore);
+        return bestScore>=80?best:first;
+    }
+
+    private static TrackInfo trackInfo(JSONObject t){
         String artist="";
         JSONArray artists=t.optJSONArray("artists");
         if(artists!=null&&artists.length()>0)artist=artists.getJSONObject(0).optString("name","");
-        return new TrackInfo(t.optString("id"),t.optString("title",query),artist,t.optInt("durationMs",0));
+        return new TrackInfo(t.optString("id"),t.optString("title",""),artist,t.optInt("durationMs",0));
+    }
+
+    static int trackMatchScore(String query,String title,String artist){
+        String q=normalMatch(query),t=normalMatch(title),a=normalMatch(artist);
+        if(q.isBlank()||t.isBlank())return Integer.MIN_VALUE/4;
+        int score=0;
+        boolean titlePhrase=q.contains(t)||t.contains(q);
+        boolean artistPhrase=!a.isBlank()&&q.contains(a);
+        if(titlePhrase)score+=60;
+        if(artistPhrase)score+=70;
+        int titleHits=tokenHits(q,t,3);score+=titleHits*6;
+        int artistHits=tokenHits(q,a,2);score+=artistHits*12;
+        if(!a.isBlank()&&!artistPhrase&&artistHits==0&&titleHits>0)score-=30;
+        return score;
+    }
+
+    private static int tokenHits(String query,String value,int minLen){
+        if(value==null||value.isBlank())return 0;int hits=0;
+        for(String token:value.split(" "))if(token.length()>=minLen&&query.contains(token))hits++;
+        return hits;
+    }
+    private static String normalMatch(String value){
+        return value==null?"":value.toLowerCase(Locale.ROOT).replace('ё','е').replaceAll("[^\\p{L}\\p{N}]+"," ").replaceAll("\\s+"," ").trim();
     }
 
     private List<StreamCandidate> streamCandidates(String trackId,boolean fragment)throws Exception{
@@ -284,7 +320,7 @@ public final class YandexMusicClient {
     private byte[] getBytes(String url,boolean auth)throws Exception{
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
         try{
-            c.setConnectTimeout(12000);c.setReadTimeout(20000);c.setRequestProperty("Accept","application/json, text/xml, */*");c.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9");c.setRequestProperty("User-Agent","SergeyAIHost/0.10.4 Android");
+            c.setConnectTimeout(12000);c.setReadTimeout(20000);c.setRequestProperty("Accept","application/json, text/xml, */*");c.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9");c.setRequestProperty("User-Agent","SergeyAIHost/0.10.5 Android");
             if(auth)c.setRequestProperty("Authorization","OAuth "+token());
             int code=c.getResponseCode();
             InputStream in=code>=200&&code<300?c.getInputStream():c.getErrorStream();
