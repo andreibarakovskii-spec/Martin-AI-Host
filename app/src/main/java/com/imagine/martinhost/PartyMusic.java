@@ -20,7 +20,7 @@ public final class PartyMusic {
  public String status(){return status;}
  public void setListener(Listener l){listener=l;if(l!=null)l.onState(status);}
  private void emit(String s){status=s;if(listener!=null)listener.onState(s);}
- public void add(String uri,String filename){for(Track x:tracks)if(x.uri.equals(uri))return;Track t=new Track();t.uri=uri;t.title=filename.replaceFirst("\\.[^.]+$","");String[] parts=t.title.split("[—–]| - ",2);if(parts.length==2){t.artist=parts[0].trim();t.title=parts[1].trim();}java.util.regex.Matcher m=java.util.regex.Pattern.compile("\\b(19[5-9][0-9]|20[0-2][0-9])\\b").matcher(filename);if(m.find())t.year=Integer.parseInt(m.group());tracks.add(t);save();}
+ public void add(String uri,String filename){for(Track x:tracks)if(x.uri.equals(uri))return;Track t=new Track();t.uri=uri;t.title=filename.replaceFirst("\\.[^.]+$","");String[] parts=t.title.split("[—–]| - ",2);if(parts.length==2){t.artist=parts[0].trim();t.title=parts[1].trim();}java.util.regex.Matcher m=java.util.regex.Pattern.compile("\\b(19[5-9][0-9]|20[0-2][0-9])\\b").matcher(filename);if(m.find()){t.year=Integer.parseInt(m.group());t.title=t.title.replaceAll("[\\s(\\[]*"+t.year+"[)\\]]*"," ").replaceAll("\\s+"," ").trim();}tracks.add(t);save();}
  public void edit(int i,String title,String artist,int year){Track t=tracks.get(i);t.title=title.trim();t.artist=artist.trim();t.year=year;save();}
  private void save(){JSONArray a=new JSONArray();try{for(Track t:tracks)a.put(new JSONObject().put("uri",t.uri).put("title",t.title).put("artist",t.artist).put("year",t.year));context.getSharedPreferences("martin",0).edit().putString("playlist",a.toString()).apply();}catch(Exception ignored){}}
  public void clear(){stop();tracks.clear();save();}
@@ -39,7 +39,7 @@ public final class PartyMusic {
  private void open(String uri,String label,int duration,Runnable done,boolean background){
   stop();clipDone=done;clipMode=duration>0;backgroundMode=background;final MediaPlayer p=new MediaPlayer();player=p;
   try{p.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());p.setDataSource(context,Uri.parse(uri));
-   p.setOnPreparedListener(mp->{if(player!=mp)return;if(duration>0&&mp.getDuration()>18000)mp.seekTo(Math.min(mp.getDuration()-7000,Math.max(8000,mp.getDuration()/3)),MediaPlayer.SEEK_CLOSEST_SYNC);applyVolume();mp.start();emit(label);if(duration>0)handler.postDelayed(this::finishClip,duration);});
+   p.setOnPreparedListener(mp->{if(player!=mp)return;applyVolume();Runnable begin=()->{if(player!=mp)return;mp.start();emit(label);if(duration>0)handler.postDelayed(this::finishClip,duration);};if(duration>0&&mp.getDuration()>18000){mp.setOnSeekCompleteListener(x->begin.run());mp.seekTo(Math.min(mp.getDuration()-7000,Math.max(8000,mp.getDuration()/3)),MediaPlayer.SEEK_CLOSEST_SYNC);}else begin.run();});
    p.setOnCompletionListener(mp->{if(duration>0)finishClip();else if(backgroundMode)backgroundNext();else next();});
    p.setOnErrorListener((mp,w,e)->{emit("Не удалось открыть трек. Выберите файл заново.");finishClip();return true;});p.prepareAsync();
   }catch(Exception e){emit("Нет доступа к файлу. Выберите его заново.");finishClip();}
