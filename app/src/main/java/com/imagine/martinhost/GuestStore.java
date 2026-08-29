@@ -5,6 +5,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 public final class GuestStore {
     public static final class Guest {
@@ -17,8 +19,12 @@ public final class GuestStore {
         public int participated=0;
     }
 
+    private static final Set<String> BOGUS_CAMERA_NAMES=Set.of(
+            "зовут","поп","не","готов","готова","всего","лишь","здесь","один","одна","меня","я","это","ответил","ответила","привет","да","нет","потом","сейчас","музыка","включай","включи"
+    );
+
     private final Context context;
-    public GuestStore(Context context){ this.context=context.getApplicationContext(); }
+    public GuestStore(Context context){ this.context=context.getApplicationContext(); migrateBogusCameraNames(); }
 
     public List<Guest> load(){
         ArrayList<Guest> out=new ArrayList<>();
@@ -47,6 +53,29 @@ public final class GuestStore {
         }catch(Exception ignored){}
     }
 
+    private void migrateBogusCameraNames(){
+        var p=context.getSharedPreferences("martin",0);
+        if(p.getBoolean("guest_identity_fix_101",false))return;
+        List<Guest> all=loadWithoutMigration();
+        boolean changed=all.removeIf(g->BOGUS_CAMERA_NAMES.contains(normal(g.name))||BOGUS_CAMERA_NAMES.contains(normal(g.callName)));
+        if(changed)save(all);
+        p.edit().putBoolean("guest_identity_fix_101",true).apply();
+    }
+
+    private List<Guest> loadWithoutMigration(){
+        ArrayList<Guest> out=new ArrayList<>();
+        try{
+            String raw=context.getSharedPreferences("martin",0).getString("guests","[]");
+            JSONArray a=new JSONArray(raw);
+            for(int i=0;i<a.length();i++){
+                JSONObject o=a.getJSONObject(i); Guest g=new Guest();
+                g.name=o.optString("name","");g.callName=o.optString("callName",g.name);g.relation=o.optString("relation","");g.facts=o.optString("facts","");g.boundaries=o.optString("boundaries","");g.score=o.optInt("score",0);g.participated=o.optInt("participated",0);
+                if(!g.name.isBlank())out.add(g);
+            }
+        }catch(Exception ignored){}
+        return out;
+    }
+
     public String promptContext(){
         List<Guest> guests=load();
         if(guests.isEmpty()) return "Список гостей пока не заполнен. Не выдумывай личные факты.";
@@ -71,7 +100,28 @@ public final class GuestStore {
         }
         return false;
     }
-    public String canonicalName(String spokenName){if(spokenName==null)return "";String q=normal(spokenName);for(Guest g:load())if(normal(g.name).equals(q)||normal(g.callName).equals(q))return g.callName.isBlank()?g.name:g.callName;return spokenName.trim();}
-    public void ensureGuest(String name){if(name==null||name.isBlank())return;String q=normal(name);List<Guest> all=load();for(Guest g:all)if(normal(g.name).equals(q)||normal(g.callName).equals(q))return;Guest g=new Guest();g.name=name.trim();g.callName=g.name;all.add(g);save(all);}
-    private static String normal(String s){return s.toLowerCase(java.util.Locale.ROOT).replace('ё','е').replaceAll("[^\\p{L} -]","").replaceAll("\\s+"," ").trim();}
+
+    static boolean isPlausibleNewName(String name){
+        if(name==null)return false;
+        String s=name.trim();if(s.length()<2||s.length()>32||s.contains(" "))return false;
+        String n=normal(s);if(BOGUS_CAMERA_NAMES.contains(n))return false;
+        char first=s.charAt(0);
+        // Whisper normally capitalises proper names. Requiring this prevents “я готов/я всего/я не” from becoming people.
+        if(!Character.isUpperCase(first))return false;
+        return s.matches("[\\p{L}Ёё-]{2,32}");
+    }
+
+    public String canonicalName(String spokenName){
+        if(spokenName==null)return "";String q=normal(spokenName);
+        for(Guest g:load())if(normal(g.name).equals(q)||normal(g.callName).equals(q))return g.callName.isBlank()?g.name:g.callName;
+        return isPlausibleNewName(spokenName)?spokenName.trim():"";
+    }
+
+    public void ensureGuest(String name){
+        if(!isPlausibleNewName(name))return;
+        String q=normal(name);List<Guest> all=load();for(Guest g:all)if(normal(g.name).equals(q)||normal(g.callName).equals(q))return;
+        Guest g=new Guest();g.name=name.trim();g.callName=g.name;all.add(g);save(all);
+    }
+
+    private static String normal(String s){return s==null?"":s.toLowerCase(Locale.ROOT).replace('ё','е').replaceAll("[^\\p{L} -]","").replaceAll("\\s+"," ").trim();}
 }

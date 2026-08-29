@@ -9,7 +9,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Official multi-ABI Android package with statically linked ONNX Runtime.
 val sherpaAar = layout.buildDirectory.file("verified-deps/sherpa-onnx-1.13.2.aar")
 val fetchSherpa = tasks.register("fetchSherpa") {
     val checksum = "9b2a290b8c7f31bd0aba35abb4628e87fe8d0eb71796a98aa12f3acd089ceaed"
@@ -40,8 +39,8 @@ android {
         minSdk = 31
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 100
-        versionName = "0.10.0-sergey-evening-memory"
+        versionCode = 101
+        versionName = "0.10.1-sergey-log-fixes"
     }
     System.getenv("MARTIN_DEBUG_KEYSTORE")?.let { keyPath ->
         signingConfigs.getByName("debug") { storeFile = file(keyPath) }
@@ -68,8 +67,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
-
-    // Front-camera face tracking. Camera frames are processed locally and never stored.
     implementation("androidx.camera:camera-core:1.6.1")
     implementation("androidx.camera:camera-camera2:1.6.1")
     implementation("androidx.camera:camera-lifecycle:1.6.1")

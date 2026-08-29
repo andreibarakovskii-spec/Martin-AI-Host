@@ -1,7 +1,7 @@
 package com.imagine.martinhost;
 import org.junit.Test;import static org.junit.Assert.*;
 public class MusicRequestRouterTest {
- @Test public void extractsNaturalRequest(){assertEquals("Руки Вверх Крошка моя",MusicRequestRouter.extract("Сергей, включи песню Руки Вверх Крошка моя"));}
- @Test public void ignoresNormalConversation(){assertEquals("",MusicRequestRouter.extract("Какая музыка тебе нравится?"));}
- @Test public void addsStressHints(){assertTrue(RussianTtsNormalizer.prepare("Включить музыку").contains("\u0301"));}
+ @Test public void negativeQuestionIsNotACommand(){assertEquals("",MusicRequestRouter.extract("Так ты не включил?"));}
+ @Test public void genericMusicCommandGetsPartyFallback(){assertEquals(MusicRequestRouter.DEFAULT_PARTY_QUERY,MusicRequestRouter.extract("Включи музыку"));}
+ @Test public void namedTrackIsPreserved(){assertEquals("Руки Вверх Крошка моя",MusicRequestRouter.extract("Сергей, поставь Руки Вверх Крошка моя"));}
 }

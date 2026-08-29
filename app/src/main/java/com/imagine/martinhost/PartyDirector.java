@@ -41,6 +41,12 @@ public final class PartyDirector {
  private Action local(String s){return Action.local(s,"game","","curious");}
  private boolean isMelody(){return game!=null&&game.id.equals("melody");}
  private void remember(String type,String actor,String detail,boolean callback){if(memory!=null)memory.remember(type,actor,detail,callback);}
+ private boolean looksLikeMelodyRequest(String l){
+  if(l==null)return false;
+  if(l.contains("музыкальн")&&(l.contains("виктор")||l.contains("игр")))return true;
+  if(!l.contains("мелод")&&!l.contains("песн"))return false;
+  return l.contains("угада")||l.contains("отгада")||l.contains("отгода")||l.contains("угода")||l.contains("угадай музыку");
+ }
 
  public Action startChgk(){return startGame("chgk");}
  public Action offerGame(String id){
@@ -149,7 +155,7 @@ public final class PartyDirector {
   if(l.equals("закончить игру")||l.equals("стоп игра")||l.equals("отмена конкурса"))return cancel();
 
   if(mode==Mode.FREE){
-   if(l.contains("музыкальн")&&(l.contains("виктор")||l.contains("игр"))||l.contains("угадай песню")||l.contains("угадай музыку")||l.contains("угадай мелодию"))return startGame("melody");
+   if(looksLikeMelodyRequest(l))return startGame("melody");
    if(l.contains("машин")&&l.contains("времен")&&l.contains("музык"))return startGame("time_machine");
    for(PartyGames.Game g:PartyGames.all())if(l.contains(PartyGames.normal(g.title.split(" — ")[0])))return startGame(g.id);
    if(l.contains("чгк")||l.equals("начни игру"))return startChgk();
@@ -169,7 +175,7 @@ public final class PartyDirector {
   }
 
   if(mode==Mode.WAIT_ANSWER&&isMelody()&&PartyGames.matches(l,"еще раз|ещё раз|повтори|повтори фрагмент|повтори песню")){
-   musicUri="yandex:"+currentMelodyQuery;remember("melody_replay",suggestedGuest,currentMelodyAnswer,true);return local("Повторяю тот же фрагмент. Проверка информации продолжается.");
+   musicUri="yandex:"+currentMelodyQuery;remember("melody_replay",suggestedGuest,currentMelodyAnswer,true);return local("Повторяю тот же фрагмент. Проверка продолжается.");
   }
 
   if(l.equals("дальше")||l.equals("следующий")||l.equals("пропустить"))return next();
