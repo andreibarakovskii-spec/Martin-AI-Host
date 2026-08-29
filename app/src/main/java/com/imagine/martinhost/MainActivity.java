@@ -25,7 +25,7 @@ public final class MainActivity extends Activity {
             public void onLevel(float rms,float noise,boolean speech){runOnUiThread(()->{if(turns.acceptMicForStt())martin.setSpeechLevel(Math.max(0f,Math.min(1f,(rms+48f)/36f)));});}
             public void onStatus(String s){} public void onError(String e){runOnUiThread(()->state.setText("Проверь доступ к микрофону"));}
         });
-        neural=new MartinNeuralSpeaker(this,new MartinNeuralSpeaker.Listener(){
+        neural=new MartinNeuralSpeaker(this,new MartinSpeaker.Listener(){
             public void onPreparing(String m){runOnUiThread(()->{voiceDot.setText("● голос");voiceDot.setTextColor(0xFFFFA84D);});}
             public void onReady(){runOnUiThread(()->{neuralReady=true;voiceDot.setText("● голос");voiceDot.setTextColor(0xFF56E39F);});}
             public void onStart(){runOnUiThread(()->{martin.setState(MartinSpriteView.State.TALKING);state.setText("Говорю…");});}

@@ -37,6 +37,7 @@ public final class MartinFaceTracker implements AutoCloseable {
     public interface Listener {
         void onLook(float x, float y, boolean faceVisible);
         void onStatus(boolean active, String message);
+        default void onPerson(int trackingId,int faceCount,boolean visible){}
         default void onFrame(byte[] jpeg) {}
     }
 
@@ -52,6 +53,7 @@ public final class MartinFaceTracker implements AutoCloseable {
     private float smoothX = 0f, smoothY = 0f;
     private long lastFaceAt = 0L;
     private long lastEmitAt = 0L;
+    private int lastTrackingId=-1,lastFaceCount=0;
 
     public MartinFaceTracker(FragmentActivity activity, Listener listener) {
         this.activity = activity;
@@ -155,6 +157,9 @@ public final class MartinFaceTracker implements AutoCloseable {
         if (now - lastEmitAt >= 65L) {
             lastEmitAt = now;
             listener.onLook(smoothX, smoothY, true);
+            Integer tracking=best.getTrackingId();
+            int id=faces.size()==1&&tracking!=null?tracking:-1;
+            if(id!=lastTrackingId||faces.size()!=lastFaceCount){lastTrackingId=id;lastFaceCount=faces.size();listener.onPerson(id,faces.size(),true);}
         }
     }
 
@@ -165,6 +170,7 @@ public final class MartinFaceTracker implements AutoCloseable {
         smoothY *= 0.82f;
         lastEmitAt = now;
         listener.onLook(smoothX, smoothY, false);
+        if(lastFaceCount!=0){lastFaceCount=0;lastTrackingId=-1;listener.onPerson(-1,0,false);}
     }
 
     private static float clamp(float v) { return Math.max(-1f, Math.min(1f, v)); }
@@ -176,6 +182,7 @@ public final class MartinFaceTracker implements AutoCloseable {
         if (provider != null) provider.unbindAll();
         analysis = null;
         listener.onLook(0f, 0f, false);
+        listener.onPerson(-1,0,false);
         listener.onStatus(false, "Камера выключена");
     }
 

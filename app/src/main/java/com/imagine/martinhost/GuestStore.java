@@ -63,12 +63,15 @@ public final class GuestStore {
     }
 
     public boolean addScore(String spokenName,int delta){
-        if(spokenName==null)return false; String q=spokenName.trim().toLowerCase(); List<Guest> guests=load();
+        if(spokenName==null)return false; String q=normal(spokenName); List<Guest> guests=load();
         for(Guest g:guests){
-            if(g.name.toLowerCase().equals(q)||g.callName.toLowerCase().equals(q)){
+            if(normal(g.name).equals(q)||normal(g.callName).equals(q)){
                 g.score+=delta; g.participated++; save(guests); return true;
             }
         }
         return false;
     }
+    public String canonicalName(String spokenName){if(spokenName==null)return "";String q=normal(spokenName);for(Guest g:load())if(normal(g.name).equals(q)||normal(g.callName).equals(q))return g.callName.isBlank()?g.name:g.callName;return spokenName.trim();}
+    public void ensureGuest(String name){if(name==null||name.isBlank())return;String q=normal(name);List<Guest> all=load();for(Guest g:all)if(normal(g.name).equals(q)||normal(g.callName).equals(q))return;Guest g=new Guest();g.name=name.trim();g.callName=g.name;all.add(g);save(all);}
+    private static String normal(String s){return s.toLowerCase(java.util.Locale.ROOT).replace('ё','е').replaceAll("[^\\p{L} -]","").replaceAll("\\s+"," ").trim();}
 }

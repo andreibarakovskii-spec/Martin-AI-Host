@@ -14,6 +14,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:hardwareAccelerated="true">
         <activity android:name=".LocalVoicesActivity" android:exported="false" />
+        <activity android:name=".SystemVoicesActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".RankingActivity" android:exported="false" android:screenOrientation="portrait" />

@@ -49,7 +49,7 @@ jobs:
           key: martin-diagnostics-signing-v2
       - uses: actions/upload-artifact@v4
         with:
-          name: Martin-Dialogue-Test-0.9.4-APK
+          name: Martin-Dialogue-Test-0.9.5-APK
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             apk-sha256.txt

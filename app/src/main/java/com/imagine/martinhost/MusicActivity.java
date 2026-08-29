@@ -7,6 +7,7 @@ public final class MusicActivity extends Activity {
  PartyScreen.text(this,root,"Добавьте купленные или свои аудиофайлы. Треки остаются на телефоне. Для музыкальных конкурсов укажите исполнителя, название и год. Яндекс Музыка открывается отдельно: приложение не управляет её защищённым каталогом.",14);
  PartyScreen.button(this,root,"＋ Добавить аудиофайлы",()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("audio/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,31);});
  PartyScreen.button(this,root,"▶ / Ⅱ Воспроизведение",()->music.toggle());PartyScreen.button(this,root,"Следующий трек →",()->music.next());PartyScreen.button(this,root,"← Предыдущий трек",()->music.previous());PartyScreen.button(this,root,"■ Стоп",()->music.stop());
+ Button auto=PartyScreen.button(this,root,autoLabel(),()->{});auto.setOnClickListener(v->{boolean on=!getSharedPreferences("martin",0).getBoolean("auto_music",true);getSharedPreferences("martin",0).edit().putBoolean("auto_music",on).apply();auto.setText(autoLabel());if(on)music.ensureBackground();else music.stopBackground();});
  PartyScreen.button(this,root,"Открыть Яндекс Музыку",()->open("https://music.yandex.ru/"));
  PartyScreen.button(this,root,"Ностальгия: 90-е и 2000-е",()->open("https://music.yandex.ru/search?text="+Uri.encode("Хиты 90-х и 2000-х")));
  PartyScreen.button(this,root,"Актуальный чарт",()->open("https://music.yandex.ru/chart"));
@@ -20,4 +21,5 @@ public final class MusicActivity extends Activity {
  @Override protected void onActivityResult(int r,int c,Intent data){super.onActivityResult(r,c,data);if(r!=31||c!=RESULT_OK||data==null)return;if(data.getClipData()!=null){for(int i=0;i<data.getClipData().getItemCount();i++)add(data.getClipData().getItemAt(i).getUri(),data.getFlags());}else if(data.getData()!=null)add(data.getData(),data.getFlags());render();}
  private void add(Uri u,int flags){try{getContentResolver().takePersistableUriPermission(u,flags&Intent.FLAG_GRANT_READ_URI_PERMISSION);String name="Трек";try(android.database.Cursor c=getContentResolver().query(u,null,null,null,null)){if(c!=null&&c.moveToFirst()){int x=c.getColumnIndex(OpenableColumns.DISPLAY_NAME);if(x>=0)name=c.getString(x);}}music.add(u.toString(),name);}catch(Exception e){status.setText("Не удалось добавить файл");}}
  @Override protected void onDestroy(){music.setListener(null);super.onDestroy();}
+ private String autoLabel(){return getSharedPreferences("martin",0).getBoolean("auto_music",true)?"♫ ФОНОВАЯ МУЗЫКА: АВТО":"♫ ФОНОВАЯ МУЗЫКА: ВЫКЛ";}
 }

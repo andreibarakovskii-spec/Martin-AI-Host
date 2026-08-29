@@ -53,11 +53,14 @@ public final class SettingsActivity extends Activity {
         Button diag=btn("ДИАГНОСТИКА: ЛОГ + АУДИО");diag.setOnClickListener(v->startActivity(new android.content.Intent(this,DiagnosticsActivity.class)));root.addView(diag);
 
         root.addView(tv("ГОЛОС МАРТИНА", 13, 0xFF8B5CF6));
-        voiceStatus = tv("Бесплатная локальная озвучка: 5 мужских и 5 женских голосов. Выбор, прослушивание и скорость речи. Все голоса используют одну загруженную модель.", 14, 0xFFB8BFCC);
+        voiceStatus = tv("Два бесплатных варианта: 10 локальных голосов Supertonic или русские голоса установленного на телефоне движка. Системные голоса обычно быстрее и могут произносить русский естественнее.", 14, 0xFFB8BFCC);
         root.addView(voiceStatus);
         voiceButton = btn("ВЫБРАТЬ И ПРОСЛУШАТЬ ГОЛОС");
         voiceButton.setOnClickListener(v -> startActivity(new android.content.Intent(this,LocalVoicesActivity.class)));
         root.addView(voiceButton);
+        Button systemVoice=btn("РУССКИЕ ГОЛОСА ТЕЛЕФОНА");
+        systemVoice.setOnClickListener(v->startActivity(new android.content.Intent(this,SystemVoicesActivity.class)));
+        root.addView(systemVoice);
 
         Button projector = btn(projectorLabel());
         projector.setOnClickListener(v -> {
@@ -133,7 +136,7 @@ public final class SettingsActivity extends Activity {
         }
         voiceButton.setEnabled(false);
         voiceStatus.setText("Подготавливаю загрузку нейроголоса…");
-        voiceLoader = new MartinNeuralSpeaker(this, new MartinNeuralSpeaker.Listener() {
+        voiceLoader = new MartinNeuralSpeaker(this, new MartinSpeaker.Listener() {
             public void onPreparing(String m) { runOnUiThread(() -> { voiceStatus.setText("⬇ " + m); voiceButton.setText("ЗАГРУЗКА МОДЕЛИ…"); }); }
             public void onReady() { runOnUiThread(() -> {
                 voiceStatus.setText("✅ Нейроголос загружен и готов к работе");

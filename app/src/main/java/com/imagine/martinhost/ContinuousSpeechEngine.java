@@ -109,6 +109,7 @@ public final class ContinuousSpeechEngine {
         float noiseDb = -48f;
         boolean inSpeech = false;
         long lastHealth=0,lastRead=android.os.SystemClock.elapsedRealtime();
+        boolean previousBackground=false;long musicCalibrationUntil=0;
 
         while (running && record != null) {
             int read;
@@ -121,14 +122,17 @@ public final class ContinuousSpeechEngine {
             System.arraycopy(frame, 0, copy, 0, read);
             DiagnosticRecorder.get(context).mic(copy,read);
             float rmsDb = rmsDb(copy);
-            if (!inSpeech && turnManager.acceptMicForStt()) {
-                float capped = Math.min(rmsDb, noiseDb + 8f);
-                noiseDb = noiseDb * 0.985f + capped * 0.015f;
-            }
-            float threshold = Math.max(-43f, noiseDb + 9.0f);
-            boolean voiced = turnManager.acceptMicForStt() && rmsDb > threshold;
-            listener.onLevel(rmsDb, noiseDb, voiced);
             long now=android.os.SystemClock.elapsedRealtime();
+            boolean background=PartyMusic.get(context).isBackgroundPlaying();
+            if(background!=previousBackground){previousBackground=background;musicCalibrationUntil=background?now+1600:0;inSpeech=false;utterance=null;preRoll.clear();speechMs=silenceMs=utteranceMs=0;DiagnosticRecorder.get(context).event("vad_music_mode","background="+background);}
+            if (!inSpeech && turnManager.acceptMicForStt()) {
+                float capped = Math.min(rmsDb, noiseDb + (background?5f:8f));
+                float alpha=background&&now<musicCalibrationUntil?.16f:.015f;
+                noiseDb = noiseDb * (1f-alpha) + capped * alpha;
+            }
+            float threshold = Math.max(-43f, noiseDb + (background?12f:9f));
+            boolean voiced = turnManager.acceptMicForStt() && now>=musicCalibrationUntil && rmsDb > threshold;
+            listener.onLevel(rmsDb, noiseDb, voiced);
             if(now-lastRead>100)DiagnosticRecorder.get(context).event("capture_read_gap","ms="+(now-lastRead));lastRead=now;
             if(now-lastHealth>=200&&DiagnosticRecorder.get(context).active()){
                 int clipped=0,peak=0;for(short sample:copy){int v=Math.abs((int)sample);peak=Math.max(peak,v);if(v>=32760)clipped++;}

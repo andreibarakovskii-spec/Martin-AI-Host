@@ -18,7 +18,9 @@ import android.widget.TextView;
 import androidx.fragment.app.FragmentActivity;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Voice-first party host. The previous 3D Martin renderer is intentionally archived:
@@ -27,7 +29,7 @@ import java.util.Locale;
 public final class PremiumMainActivity extends FragmentActivity {
     private static final int REQ = 17;
 
-    private MartinNeuralSpeaker neural;
+    private MartinSpeaker neural;
     private GrokClient grok;
     private GroqTranscriber stt;
     private TurnManager turns;
@@ -40,12 +42,15 @@ public final class PremiumMainActivity extends FragmentActivity {
     private Button mic;
     private boolean active, neuralReady, destroyed, cameraEnabled, pendingAudioStart;
     private volatile boolean faceVisible;
+    private volatile int currentFaceId=-1,currentFaceCount=0;
+    private final Map<Integer,String> faceNames=new HashMap<>();
     private volatile int session;
     private String pendingClip;
     private String visualQuestion, pendingCameraQuestion;
     private int visualSession;
     private TextView cameraHelp;
     private String queuedSpeech;
+    private String activeVoiceProvider;
     private String queuedEmotion = "neutral";
     private float queuedEnergy = .55f;
 
@@ -93,7 +98,8 @@ public final class PremiumMainActivity extends FragmentActivity {
             @Override public void onError(String e) { runOnUiThread(() -> subline.setText("Проверь микрофон")); }
         });
 
-        neural = new MartinNeuralSpeaker(this, new MartinNeuralSpeaker.Listener() {
+        activeVoiceProvider=getSharedPreferences("martin",0).getString("voice_provider","local");
+        neural = MartinSpeakerFactory.create(this, new MartinSpeaker.Listener() {
             @Override public void onPreparing(String m) { runOnUiThread(() -> { setVoiceDot(false); subline.setText(m); }); }
             @Override public void onReady() { runOnUiThread(() -> {
                 if(destroyed)return;
@@ -141,8 +147,9 @@ public final class PremiumMainActivity extends FragmentActivity {
         // We keep it for presence detection and future video/game interaction.
         faceTracker = new MartinFaceTracker(this, new MartinFaceTracker.Listener() {
             @Override public void onLook(float x, float y, boolean visible) {
-                faceVisible=visible;runOnUiThread(()->{if(cameraEnabled)cameraHelp.setText(visible?"Камера: человек в кадре • без определения личности":"Камера: лицо вне кадра • можно говорить без камеры");});
+                faceVisible=visible;
             }
+            @Override public void onPerson(int trackingId,int count,boolean visible){currentFaceId=trackingId;currentFaceCount=count;runOnUiThread(()->{if(!cameraEnabled)return;String name=trackingId>=0?faceNames.get(trackingId):null;cameraHelp.setText(!visible?"Камера: лицо вне кадра":count>1?"Камера: несколько людей — спрошу имя":name==null?"Камера: лицо вижу • имя пока неизвестно":"Камера: "+name);});}
             @Override public void onStatus(boolean ok, String message) { runOnUiThread(() -> {setCameraDot(ok,message);if(!ok&&visualQuestion!=null){visualQuestion=null;subline.setText(message);turns.forceListen();}}); }
             @Override public void onFrame(byte[] jpeg){runOnUiThread(()->{
                 if(visualQuestion==null||visualSession!=session||destroyed)return;
@@ -236,6 +243,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         for(String label:new String[]{"Текст","Дальше","Засчитать","Ответ"}){Button b=iconButton(label);b.setTextSize(10);actions.addView(b,new LinearLayout.LayoutParams(0,dp(42),1));b.setOnClickListener(v->{
             if(label.equals("Текст")){textInput();return;}
             cancelCurrent();
+            director.setSuggestedGuest(currentCameraGuest());
             runDirectorAction(label.equals("Дальше")?director.next():label.equals("Засчитать")?director.award():director.reveal());
         });}root.addView(actions);
         reply.setOnLongClickListener(v->{new android.app.AlertDialog.Builder(this).setMessage(reply.getText()).setPositiveButton("Закрыть",null).show();return true;});
@@ -294,11 +302,16 @@ public final class PremiumMainActivity extends FragmentActivity {
         if (low.contains("мартин стоп") || low.equals("стоп")) { stopAudio(); return; }
 
         if(low.contains("посмотри")||low.contains("что видишь")){requestVisualReply(t);return;}
-        if(low.contains("ты видишь")||low.contains("видишь меня")){speak(cameraEnabled?(faceVisible?"В кадре есть человек. Я не определяю личность и не знаю, кто именно говорит.":"Сейчас лицо не попало в кадр. Но можем продолжать голосом."):"Камера выключена. Включить её можно нажатием на индикатор камеры.","neutral",.5f);return;}
+        if(low.contains("ты видишь")||low.contains("видишь меня")){String known=currentCameraGuest();speak(cameraEnabled?(faceVisible?(known.isBlank()?"Вижу человека, но имя пока не знаю. Как вас зовут?":"Вижу. Сейчас перед камерой "+known+"."):"Сейчас лицо не попало в кадр. Но можем продолжать голосом."):"Камера выключена. Включить её можно нажатием на индикатор камеры.","neutral",.5f);return;}
         DiagnosticRecorder.get(this).event("transcript_accepted",t);
+        rememberIntroduction(t);
         // In games guests answer naturally without a wake word.
         if (director.mode() != PartyDirector.Mode.FREE) {
-            runDirectorAction(director.onUserText(t));
+            PartyDirector.Mode before=director.mode();
+            director.setSuggestedGuest(currentCameraGuest());
+            PartyDirector.Action action=director.onUserText(t);
+            if(before==PartyDirector.Mode.WAIT_NAME&&director.mode()==PartyDirector.Mode.RESULT&&!PartyGames.normal(t).equals("без имени"))bindCurrentFace(new GuestStore(this).canonicalName(extractScoredName(t)));
+            runDirectorAction(action);
             return;
         }
 
@@ -311,6 +324,11 @@ public final class PremiumMainActivity extends FragmentActivity {
         if (q.isBlank()) q = "Поздоровайся с компанией естественно и коротко.";
         runDirectorAction(director.onUserText(q));
     }
+
+    private String currentCameraGuest(){if(!cameraEnabled||currentFaceCount!=1||currentFaceId<0)return "";String name=faceNames.get(currentFaceId);return name==null?"":name;}
+    private void bindCurrentFace(String name){if(!cameraEnabled||currentFaceCount!=1||currentFaceId<0||name==null||name.isBlank())return;GuestStore store=new GuestStore(this);store.ensureGuest(name);String canonical=store.canonicalName(name);faceNames.put(currentFaceId,canonical);cameraHelp.setText("Камера: "+canonical);DiagnosticRecorder.get(this).event("camera_guest_bound","tracking_id="+currentFaceId+";name="+canonical);}
+    private void rememberIntroduction(String text){java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?iu)(?:меня зовут|я)[\\s,:-]+([А-ЯЁ][а-яё-]{1,30})").matcher(text.trim());if(m.find())bindCurrentFace(m.group(1));}
+    private String extractScoredName(String text){return text.replaceFirst("(?iu)^(это|я|ответил|ответила)\\s+","").replaceAll("[.!?,]$","").trim();}
 
     private void runDirectorAction(PartyDirector.Action a) {
         if (a == null || destroyed) { turns.forceListen(); return; }
@@ -384,15 +402,18 @@ public final class PremiumMainActivity extends FragmentActivity {
         if (!active && director.mode() == PartyDirector.Mode.FREE) return;
         switch (s) {
             case LISTENING:
+                if(director.mode()==PartyDirector.Mode.FREE){PartyMusic.get(this).ensureBackground();PartyMusic.get(this).listeningVolume();}else PartyMusic.get(this).stopBackground();
                 setVisualState("listening");
                 state.setText("Слушаю…");
                 subline.setText(director.mode() == PartyDirector.Mode.FREE ? "Говори — я слушаю" : "Отвечайте вслух");
                 break;
             case THINKING:
+                PartyMusic.get(this).duck(true);
                 setVisualState("thinking");
                 state.setText("Думаю…");
                 break;
             case SPEAKING:
+                PartyMusic.get(this).duck(true);
                 setVisualState("talking");
                 state.setText("Говорю…");
                 break;
@@ -458,7 +479,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         aiDot.setText(ai ? "● AI" : "● AI?");
         aiDot.setTextColor(ai ? 0xFF58E6A9 : 0xFFFFB35C);
         setVoiceDot(neuralReady);
-        setCameraDot(cameraEnabled && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED, "Локальное обнаружение лица, не личности");
+        setCameraDot(cameraEnabled && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED, "Локальная привязка имени к отслеживаемому лицу");
     }
 
     private void setVoiceDot(boolean ok) {
@@ -486,10 +507,13 @@ public final class PremiumMainActivity extends FragmentActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        String selectedProvider=getSharedPreferences("martin",0).getString("voice_provider","local");
+        if(activeVoiceProvider!=null&&!activeVoiceProvider.equals(selectedProvider)){recreate();return;}
         DiagnosticRecorder.get(this).event("activity_resume", "main");
         refreshStatus();
         if (neural != null && (!neuralReady || !neural.isReady())) neural.prepare();
         startFaceTrackerIfAllowed();
+        if(director!=null&&director.mode()==PartyDirector.Mode.FREE)PartyMusic.get(this).ensureBackground();
     }
 
     @Override protected void onDestroy() {
@@ -510,7 +534,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     private void textInput(){android.widget.EditText e=new android.widget.EditText(this);e.setHint("Реплика, ответ или имя гостя");new android.app.AlertDialog.Builder(this).setTitle("Сказать ведущему текстом").setView(e).setPositiveButton("Отправить",(d,w)->{cancelCurrent();handleTranscript(e.getText().toString());}).setNegativeButton("Отмена",null).show();}
     private void toggleCamera(){
         if(cameraEnabled){cameraEnabled=false;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",false).apply();faceTracker.stop();cameraHelp.setText("Камера выключена");return;}
-        new android.app.AlertDialog.Builder(this).setTitle("Камера для диалога").setMessage("С согласия гостей: локально обнаруживать лицо перед телефоном. Без записи, отправки кадров, определения личности или эмоций. Камера не определяет, кто говорит.")
+        new android.app.AlertDialog.Builder(this).setTitle("Камера для диалога").setMessage("С согласия гостей: локально отслеживать лицо перед телефоном и на время вечеринки связывать его с названным именем. Фото и биометрический шаблон не сохраняются и не отправляются. Если лицо потеряно или людей несколько, Мартин переспросит имя.")
         .setPositiveButton("Включить",(d,w)->{cameraEnabled=true;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",true).apply();if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.CAMERA},REQ);else startFaceTrackerIfAllowed();}).setNegativeButton("Отмена",null).show();
     }
 

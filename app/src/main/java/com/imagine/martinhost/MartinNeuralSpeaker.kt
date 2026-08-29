@@ -10,16 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Russian neural TTS, one engine at a time. The playback owner releases AudioTrack. */
-class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
- interface Listener {
-  fun onPreparing(message: String)
-  fun onReady()
-  fun onStart()
-  fun onLevel(level: Float)
-  fun onSpectrum(bands: FloatArray)
-  fun onDone()
-  fun onError(message: String)
- }
+class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.Listener):MartinSpeaker {
  private val app=context.applicationContext
 
  private var loadedVoice=""
@@ -34,8 +25,8 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
  @Volatile private var track: AudioTrack?=null
  @Volatile private var ready=false
  @Volatile private var closed=false
- fun isReady()=ready
- fun prepare(){
+ override fun isReady()=ready
+ override fun prepare(){
   if(closed||ready||!preparing.compareAndSet(false,true))return
   enqueue {
    try {
@@ -67,10 +58,11 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   ready=true
   log.event("tts_prepare_ready","voice=$voice")
  }
- @JvmOverloads fun speak(text:String,emotion:String="neutral",energy:Float=.55f){
+ override fun speak(text:String,emotion:String,energy:Float){
   val p=app.getSharedPreferences("martin",0)
   speakInternal(text,p.getString("local_voice","M1")?:"M1",p.getFloat("local_voice_speed",1f))
  }
+ fun speak(text:String){speak(text,"neutral",.55f)}
  fun previewLocal(text:String,voice:String,speed:Float){speakInternal(text,voice,speed)}
  private fun speakInternal(text:String,requestedVoice:String,requestedSpeed:Float){
   if(text.isBlank()||closed)return
@@ -161,7 +153,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: Listener) {
   }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
- fun stop(){DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
- fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
- fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
+ override fun stop(){DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
+ override fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
+ override fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
 }
