@@ -48,6 +48,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     private volatile float[] currentAppearance;
     private volatile int session;
     private String pendingClip;
+    private String pendingMusicRequest;
     private String visualQuestion, pendingCameraQuestion;
     private int visualSession;
     private TextView cameraHelp;
@@ -131,7 +132,8 @@ public final class PremiumMainActivity extends FragmentActivity {
                 setVoiceLevel(0f);
                 setVisualState(active ? "listening" : "idle");
                 PartyMusic.get(PremiumMainActivity.this).duck(false);
-                if(pendingClip!=null){String u=pendingClip;pendingClip=null;final int token=session;
+                if(pendingMusicRequest!=null){String q=pendingMusicRequest;pendingMusicRequest=null;MusicRequestRouter.play(PremiumMainActivity.this,q);turns.onAiSpeechDone();}
+                else if(pendingClip!=null){String u=pendingClip;pendingClip=null;final int token=session;
                     turns.onAiWillSpeak();state.setText("Слушаем фрагмент…");
                     PartyMusic.get(PremiumMainActivity.this).clip(u,()->{if(token==session&&!destroyed)turns.onAiSpeechDone();});
                 }else turns.onAiSpeechDone();
@@ -306,7 +308,10 @@ public final class PremiumMainActivity extends FragmentActivity {
         heard.setText("Вы: " + t);
         lastHumanAt=System.currentTimeMillis();
         String low = t.toLowerCase(Locale.ROOT);
-        if (low.contains("мартин стоп") || low.equals("стоп")) { stopAudio(); return; }
+        if (low.contains("сергей стоп") || low.contains("мартин стоп") || low.equals("стоп")) { stopAudio(); return; }
+
+        String musicRequest=MusicRequestRouter.extract(t);
+        if(!musicRequest.isBlank()){cancelCurrent();pendingMusicRequest=musicRequest;speak("Заявка принята. Сильное музыкальное заявление.","playful",.65f);return;}
 
         if(low.contains("посмотри")||low.contains("что видишь")){requestVisualReply(t);return;}
         if(low.contains("ты видишь")||low.contains("видишь меня")){String known=currentCameraGuest();speak(cameraEnabled?(faceVisible?(known.isBlank()?"Вижу человека, но имя пока не знаю. Как вас зовут?":"Вижу. Сейчас перед камерой "+known+"."):"Сейчас лицо не попало в кадр. Но можем продолжать голосом."):"Камера выключена. Включить её можно нажатием на индикатор камеры.","neutral",.5f);return;}
@@ -324,7 +329,7 @@ public final class PremiumMainActivity extends FragmentActivity {
 
         // For the normal conversation we still support “Мартин”, but no longer
         // discard speech that does not contain it: this makes dialogue feel continuous.
-        int x = low.indexOf("мартин");
+        int x = low.indexOf("сергей");if(x<0)x=low.indexOf("мартин");
         String q = x >= 0
                 ? t.substring(Math.min(t.length(), x + 6)).replaceFirst("^[,.:;!?\\s-]+", "")
                 : t.trim();
@@ -535,7 +540,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         super.onDestroy();
     }
 
-    private void cancelCurrent(){DiagnosticRecorder.get(this).event("dialogue_cancel","session="+session);session++;visualQuestion=null;PartyMusic.get(this).stopClip();queuedSpeech=null;pendingClip=null;if(stt!=null)stt.cancel();if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
+    private void cancelCurrent(){DiagnosticRecorder.get(this).event("dialogue_cancel","session="+session);session++;visualQuestion=null;PartyMusic.get(this).stopClip();queuedSpeech=null;pendingClip=null;pendingMusicRequest=null;if(stt!=null)stt.cancel();if(grok!=null)grok.cancel();if(neural!=null)neural.stop();PartyMusic.get(this).duck(false);}
     @Override protected void onPause(){super.onPause();DiagnosticRecorder.get(this).event("activity_pause","main");if(audio!=null)stopAudio();if(faceTracker!=null)faceTracker.stop();if(neural!=null){neural.releaseModel();neuralReady=false;}}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleIntent(i);}
     private void handleIntent(Intent i){if(i!=null&&i.hasExtra("game_id")){String id=i.getStringExtra("game_id");i.removeExtra("game_id");cancelCurrent();runDirectorAction(director.startGame(id));}}
@@ -543,7 +548,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     private void textInput(){android.widget.EditText e=new android.widget.EditText(this);e.setHint("Реплика, ответ или имя гостя");new android.app.AlertDialog.Builder(this).setTitle("Сказать ведущему текстом").setView(e).setPositiveButton("Отправить",(d,w)->{cancelCurrent();handleTranscript(e.getText().toString());}).setNegativeButton("Отмена",null).show();}
     private void toggleCamera(){
         if(cameraEnabled){cameraEnabled=false;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",false).apply();faceTracker.stop();cameraHelp.setText("Камера выключена");return;}
-        new android.app.AlertDialog.Builder(this).setTitle("Камера для диалога").setMessage("С согласия гостей: локально отслеживать лицо перед телефоном и на время вечеринки связывать его с названным именем. Фото и биометрический шаблон не сохраняются и не отправляются. Если лицо потеряно или людей несколько, Мартин переспросит имя.")
+        new android.app.AlertDialog.Builder(this).setTitle("Камера для диалога").setMessage("С согласия гостей: локально отслеживать лицо перед телефоном и на время вечеринки связывать его с названным именем. Фото и биометрический шаблон не сохраняются и не отправляются. Если лицо потеряно или людей несколько, Сергей переспросит имя.")
         .setPositiveButton("Включить",(d,w)->{cameraEnabled=true;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",true).apply();if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.CAMERA},REQ);else startFaceTrackerIfAllowed();}).setNegativeButton("Отмена",null).show();
     }
 

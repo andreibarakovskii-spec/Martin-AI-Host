@@ -4,13 +4,16 @@ public final class MusicActivity extends Activity {
  private PartyMusic music;private TextView status;private LinearLayout list;
  public void onCreate(Bundle b){super.onCreate(b);music=PartyMusic.get(this);LinearLayout root=PartyScreen.root(this,"Музыка / плейлист");
  status=PartyScreen.text(this,root,music.status(),17);
- PartyScreen.text(this,root,"Добавьте купленные или свои аудиофайлы. Треки остаются на телефоне. Для музыкальных конкурсов укажите исполнителя, название и год. Яндекс Музыка открывается отдельно: приложение не управляет её защищённым каталогом.",14);
+ PartyScreen.text(this,root,"Сергей сразу передаёт музыкальную заявку установленной Яндекс Музыке, где вы уже вошли в аккаунт. Пароль и токен Яндекса в приложение не передаются.",14);
  PartyScreen.button(this,root,"＋ Добавить аудиофайлы",()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("audio/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,31);});
  PartyScreen.button(this,root,"▶ / Ⅱ Воспроизведение",()->music.toggle());PartyScreen.button(this,root,"Следующий трек →",()->music.next());PartyScreen.button(this,root,"← Предыдущий трек",()->music.previous());PartyScreen.button(this,root,"■ Стоп",()->music.stop());
  Button auto=PartyScreen.button(this,root,autoLabel(),()->{});auto.setOnClickListener(v->{boolean on=!getSharedPreferences("martin",0).getBoolean("auto_music",true);getSharedPreferences("martin",0).edit().putBoolean("auto_music",on).apply();auto.setText(autoLabel());if(on)music.ensureBackground();else music.stopBackground();});
  PartyScreen.button(this,root,"Открыть Яндекс Музыку",()->open("https://music.yandex.ru/"));
  PartyScreen.button(this,root,"Ностальгия: 90-е и 2000-е",()->open("https://music.yandex.ru/search?text="+Uri.encode("Хиты 90-х и 2000-х")));
  PartyScreen.button(this,root,"Актуальный чарт",()->open("https://music.yandex.ru/chart"));
+ PartyScreen.button(this,root,"📻 Radio Record: 2000-е",()->open("https://radiorecord.ru/station/record00"));
+ PartyScreen.button(this,root,"📻 Хит FM: хиты 2000-х",()->open("https://hitfm.ru/online/khit-2000/stream"));
+ PartyScreen.button(this,root,"📻 Новое Радио: новинки",()->open("https://newradio.ru/"));
  PartyScreen.text(this,root,"Программа вечера: встреча — спокойный фон; застолье — знакомые песни; конкурсы — короткие отрывки; танцы — 90-е/00-е; финал — медляки. Начальная подборка ниже — ссылки на поиск, не скачанные треки.",14);
  for(String t:new String[]{"Sade — Smooth Operator","Руки Вверх! — Крошка моя","Иванушки International — Тополиный пух","Дискотека Авария — Если хочешь остаться","Демо — Солнышко","Вирус! — Ты меня не ищи","t.A.T.u. — Нас не догонят","Звери — Районы-кварталы","МакSим — Знаешь ли ты","Мумий Тролль — Владивосток 2000"})PartyScreen.button(this,root,"↗ "+t,()->open("https://music.yandex.ru/search?text="+Uri.encode(t)));
  list=new LinearLayout(this);list.setOrientation(1);root.addView(list);render();music.setListener(s->runOnUiThread(()->status.setText(s)));

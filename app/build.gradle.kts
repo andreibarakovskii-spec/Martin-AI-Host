@@ -36,12 +36,12 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "com.imagine.martinhost.diagnostics" else "com.imagine.martinhost.fixed"
-        manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Martin — тест диалога" else "Martin AI Host"
+        manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Сергей — тест диалога" else "Сергей AI Ведущий"
         minSdk = 31
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 95
-        versionName = "0.9.5-party-director"
+        versionCode = 96
+        versionName = "0.9.6-sergey-yandex"
     }
     System.getenv("MARTIN_DEBUG_KEYSTORE")?.let { keyPath ->
         signingConfigs.getByName("debug") { storeFile = file(keyPath) }

@@ -93,7 +93,7 @@ public final class GroqTranscriber {
 
     private String recognitionContext() {
         // Vocabulary only; no private guest facts or fabricated speaker identity.
-        StringBuilder names=new StringBuilder("Андрей, Катя, Мартин");
+        StringBuilder names=new StringBuilder("Андрей, Катя, Сергей");
         for(GuestStore.Guest guest:new GuestStore(context).load()){
             String name=guest.name.replaceAll("[^\\p{L} -]", "").trim();
             if(!name.isEmpty() && names.length()+name.length()<160)names.append(", ").append(name);
