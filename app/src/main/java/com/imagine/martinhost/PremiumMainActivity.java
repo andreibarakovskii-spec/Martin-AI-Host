@@ -46,6 +46,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     private final Map<Integer,String> faceNames=new HashMap<>();
     private final GuestAppearanceMemory appearanceMemory=new GuestAppearanceMemory();
     private volatile float[] currentAppearance;
+    private volatile long lastPersonCallbackAt;
     private volatile int session;
     private String pendingClip;
     private String pendingMusicRequest;
@@ -150,13 +151,28 @@ public final class PremiumMainActivity extends FragmentActivity {
             }); }
         });
 
-        // Camera remains local and independent from the removed 3D renderer.
-        // We keep it for presence detection and future video/game interaction.
         faceTracker = new MartinFaceTracker(this, new MartinFaceTracker.Listener() {
             @Override public void onLook(float x, float y, boolean visible) {
                 faceVisible=visible;
             }
-            @Override public void onPerson(int trackingId,int count,boolean visible,float[] appearance){currentFaceId=trackingId;currentFaceCount=count;currentAppearance=appearance;if(trackingId>=0&&!faceNames.containsKey(trackingId)){String restored=appearanceMemory.match(appearance);if(!restored.isBlank())faceNames.put(trackingId,restored);}String known=trackingId>=0?faceNames.get(trackingId):null;if(known!=null)appearanceMemory.remember(known,appearance);runOnUiThread(()->{if(!cameraEnabled)return;cameraHelp.setText(!visible?"Камера: человек вне кадра":count>1?"Камера: несколько людей — спрошу имя":known==null?"Камера: одежда и силуэт вижу • имя пока неизвестно":"Камера: "+known);});}
+            @Override public void onPerson(int trackingId,int count,boolean visible,float[] appearance){
+                long now=android.os.SystemClock.elapsedRealtime();
+                int previousId=currentFaceId,previousCount=currentFaceCount;
+                String previousKnown=previousId>=0?faceNames.get(previousId):null;
+                long gap=lastPersonCallbackAt==0?Long.MAX_VALUE:now-lastPersonCallbackAt;
+                currentFaceId=trackingId;currentFaceCount=count;currentAppearance=appearance;lastPersonCallbackAt=now;
+                if(trackingId>=0&&!faceNames.containsKey(trackingId)){
+                    String restored=appearanceMemory.match(appearance);
+                    if(restored.isBlank()&&count==1&&previousCount==1&&previousKnown!=null&&!previousKnown.isBlank()&&gap<1200){
+                        restored=previousKnown;
+                        DiagnosticRecorder.get(PremiumMainActivity.this).event("camera_guest_continuity","old_tracking_id="+previousId+";new_tracking_id="+trackingId+";name="+restored+";gap_ms="+gap);
+                    }
+                    if(!restored.isBlank())faceNames.put(trackingId,restored);
+                }
+                String known=trackingId>=0?faceNames.get(trackingId):null;
+                if(known!=null&&!known.isBlank())appearanceMemory.remember(known,appearance);
+                runOnUiThread(()->{if(!cameraEnabled)return;cameraHelp.setText(!visible?"Камера: человек вне кадра":count>1?"Камера: несколько людей — спрошу имя":known==null||known.isBlank()?"Камера: одежда и силуэт вижу • имя пока неизвестно":"Камера: "+known);});
+            }
             @Override public void onStatus(boolean ok, String message) { runOnUiThread(() -> {setCameraDot(ok,message);if(!ok&&visualQuestion!=null){visualQuestion=null;subline.setText(message);turns.forceListen();}}); }
             @Override public void onFrame(byte[] jpeg){runOnUiThread(()->{
                 if(visualQuestion==null||visualSession!=session||destroyed)return;
@@ -187,7 +203,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
         titleBox.setGravity(Gravity.CENTER);
-        TextView title = text("MARTIN", 28, Color.WHITE, Typeface.BOLD);
+        TextView title = text("СЕРГЕЙ", 28, Color.WHITE, Typeface.BOLD);
         title.setLetterSpacing(.06f);
         title.setGravity(Gravity.CENTER);
         TextView tag = text("AI HOST • VOICE LIVE", 10, 0xFF9B7CFF, Typeface.BOLD);
@@ -306,42 +322,58 @@ public final class PremiumMainActivity extends FragmentActivity {
     private void handleTranscript(String t) {
         if (destroyed)return;
         if (t == null || t.isBlank()) { turns.forceListen(); return; }
+        if(SttHallucinationFilter.reject(t)){
+            DiagnosticRecorder.get(this).event("stt_filtered",t);
+            heard.setText("Шум/музыка — пропущено");
+            turns.forceListen();
+            return;
+        }
         heard.setText("Вы: " + t);
         lastHumanAt=System.currentTimeMillis();
         String low = t.toLowerCase(Locale.ROOT);
-        if(low.contains("выключи музыку")||low.contains("останови музыку")||low.equals("музыка стоп")){YandexMusicPlayback.stop();speak("Музыка остановлена. Это норма.","neutral",.45f);return;}
+        if(low.contains("выключи музыку")||low.contains("останови музыку")||low.equals("музыка стоп")){YandexMusicPlayback.stop();speak("Музыка остановлена.","neutral",.45f);return;}
         if (low.contains("сергей стоп") || low.contains("мартин стоп") || low.equals("стоп")) { stopAudio(); return; }
 
         String musicRequest=MusicRequestRouter.extract(t);
-        if(!musicRequest.isBlank()){cancelCurrent();pendingMusicRequest=musicRequest;speak("Заявка принята. Сильное музыкальное заявление.","playful",.65f);return;}
+        if(!musicRequest.isBlank()){cancelCurrent();pendingMusicRequest=musicRequest;speak("Ставлю.","playful",.65f);return;}
 
         if(low.contains("посмотри")||low.contains("что видишь")){requestVisualReply(t);return;}
         if(low.contains("ты видишь")||low.contains("видишь меня")){String known=currentCameraGuest();speak(cameraEnabled?(faceVisible?(known.isBlank()?"Вижу человека, но имя пока не знаю. Как вас зовут?":"Вижу. Сейчас перед камерой "+known+"."):"Сейчас лицо не попало в кадр. Но можем продолжать голосом."):"Камера выключена. Включить её можно нажатием на индикатор камеры.","neutral",.5f);return;}
         DiagnosticRecorder.get(this).event("transcript_accepted",t);
         rememberIntroduction(t);
-        // In games guests answer naturally without a wake word.
         if (director.mode() != PartyDirector.Mode.FREE) {
             PartyDirector.Mode before=director.mode();
             director.setSuggestedGuest(currentCameraGuest());
             PartyDirector.Action action=director.onUserText(t);
-            if(before==PartyDirector.Mode.WAIT_NAME&&director.mode()==PartyDirector.Mode.RESULT&&!PartyGames.normal(t).equals("без имени"))bindCurrentFace(new GuestStore(this).canonicalName(extractScoredName(t)));
+            if(before==PartyDirector.Mode.WAIT_NAME&&director.mode()==PartyDirector.Mode.RESULT&&!PartyGames.normal(t).equals("без имени")){
+                String name=new GuestStore(this).canonicalName(extractScoredName(t));
+                if(!name.isBlank())bindCurrentFace(name);
+            }
             runDirectorAction(action);
             return;
         }
 
-        // For the normal conversation we still support “Мартин”, but no longer
-        // discard speech that does not contain it: this makes dialogue feel continuous.
         int x = low.indexOf("сергей");if(x<0)x=low.indexOf("мартин");
         String q = x >= 0
                 ? t.substring(Math.min(t.length(), x + 6)).replaceFirst("^[,.:;!?\\s-]+", "")
                 : t.trim();
         if (q.isBlank()) q = "Поздоровайся с компанией естественно и коротко.";
+        director.setSuggestedGuest(currentCameraGuest());
         runDirectorAction(director.onUserText(q));
     }
 
     private String currentCameraGuest(){if(!cameraEnabled||currentFaceCount!=1||currentFaceId<0)return "";String name=faceNames.get(currentFaceId);return name==null?"":name;}
-    private void bindCurrentFace(String name){if(!cameraEnabled||currentFaceCount!=1||currentFaceId<0||name==null||name.isBlank())return;GuestStore store=new GuestStore(this);store.ensureGuest(name);String canonical=store.canonicalName(name);faceNames.put(currentFaceId,canonical);appearanceMemory.remember(canonical,currentAppearance);cameraHelp.setText("Камера: "+canonical);DiagnosticRecorder.get(this).event("camera_guest_bound","tracking_id="+currentFaceId+";name="+canonical+";appearance=clothing_pose_transient");}
-    private void rememberIntroduction(String text){java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?iu)(?:меня зовут|я)[\\s,:-]+([А-ЯЁ][а-яё-]{1,30})").matcher(text.trim());if(m.find())bindCurrentFace(m.group(1));}
+    private void bindCurrentFace(String name){
+        if(!cameraEnabled||currentFaceCount!=1||currentFaceId<0||name==null||name.isBlank())return;
+        GuestStore store=new GuestStore(this);store.ensureGuest(name);String canonical=store.canonicalName(name);
+        if(canonical==null||canonical.isBlank())return;
+        faceNames.put(currentFaceId,canonical);appearanceMemory.remember(canonical,currentAppearance);cameraHelp.setText("Камера: "+canonical);DiagnosticRecorder.get(this).event("camera_guest_bound","tracking_id="+currentFaceId+";name="+canonical+";appearance=clothing_pose_transient");
+    }
+    private void rememberIntroduction(String text){
+        if(text==null)return;
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?iu)^\\s*(?:меня\\s+зовут|я|это)[\\s,:—-]+([\\p{L}Ёё-]{2,32})\\s*[.!?]?\\s*$").matcher(text.trim());
+        if(m.matches()&&GuestStore.isPlausibleNewName(m.group(1)))bindCurrentFace(m.group(1));
+    }
     private String extractScoredName(String text){return text.replaceFirst("(?iu)^(это|я|ответил|ответила)\\s+","").replaceAll("[.!?,]$","").trim();}
 
     private void runDirectorAction(PartyDirector.Action a) {
@@ -496,11 +528,6 @@ public final class PremiumMainActivity extends FragmentActivity {
         setCameraDot(cameraEnabled && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED, "Локальная привязка имени к отслеживаемому лицу");
     }
 
-    private void setVoiceDot(boolean ok) {
-        voiceDot.setText(ok ? "● ГОЛОС" : "● ГОЛОС?");
-        voiceDot.setTextColor(ok ? 0xFF58E6A9 : 0xFFFFB35C);
-    }
-
     private void requestPerms() {
         ArrayList<String> p = new ArrayList<>();
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) p.add(Manifest.permission.RECORD_AUDIO);
@@ -546,7 +573,14 @@ public final class PremiumMainActivity extends FragmentActivity {
     @Override protected void onPause(){super.onPause();DiagnosticRecorder.get(this).event("activity_pause","main");if(audio!=null)stopAudio();if(faceTracker!=null)faceTracker.stop();if(neural!=null){neural.releaseModel();neuralReady=false;}}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleIntent(i);}
     private void handleIntent(Intent i){if(i!=null&&i.hasExtra("game_id")){String id=i.getStringExtra("game_id");i.removeExtra("game_id");cancelCurrent();runDirectorAction(director.startGame(id));}}
-    private void maybeOfferGame(){if(destroyed||!getSharedPreferences("martin",0).getBoolean("auto_games",true)||director==null||director.mode()!=PartyDirector.Mode.FREE||turns==null||turns.state()!=TurnManager.State.LISTENING||!hasWindowFocus()||!faceVisible)return;long now=System.currentTimeMillis(),last=getSharedPreferences("martin",0).getLong("last_auto_game_offer",now);if(now-last<30*60*1000L||now-lastHumanAt<45000L)return;String[] ids=PartyMusic.get(this).tracks().isEmpty()?new String[]{"chgk","true_false","crocodile","birthday_blitz","who_am_i"}:new String[]{"melody","time_machine","chgk","true_false","crocodile","birthday_blitz"};int n=getSharedPreferences("martin",0).getInt("auto_game_index",0);getSharedPreferences("martin",0).edit().putLong("last_auto_game_offer",now).putInt("auto_game_index",n+1).apply();runDirectorAction(director.offerGame(ids[n%ids.length]));}
+    private void maybeOfferGame(){
+        if(destroyed||!getSharedPreferences("martin",0).getBoolean("auto_games",true)||director==null||director.mode()!=PartyDirector.Mode.FREE||turns==null||turns.state()!=TurnManager.State.LISTENING||!hasWindowFocus()||!faceVisible)return;
+        long now=System.currentTimeMillis(),last=getSharedPreferences("martin",0).getLong("last_auto_game_offer",now);if(now-last<30*60*1000L||now-lastHumanAt<45000L)return;
+        PartyMusic pm=PartyMusic.get(this);String[] ids;
+        if(pm.tracks().isEmpty())ids=pm.hasYandexAccount()?new String[]{"melody","chgk","true_false","crocodile","birthday_blitz","who_am_i"}:new String[]{"chgk","true_false","crocodile","birthday_blitz","who_am_i"};
+        else ids=new String[]{"melody","time_machine","chgk","true_false","crocodile","birthday_blitz"};
+        int n=getSharedPreferences("martin",0).getInt("auto_game_index",0);getSharedPreferences("martin",0).edit().putLong("last_auto_game_offer",now).putInt("auto_game_index",n+1).apply();runDirectorAction(director.offerGame(ids[n%ids.length]));
+    }
     private void textInput(){android.widget.EditText e=new android.widget.EditText(this);e.setHint("Реплика, ответ или имя гостя");new android.app.AlertDialog.Builder(this).setTitle("Сказать ведущему текстом").setView(e).setPositiveButton("Отправить",(d,w)->{cancelCurrent();handleTranscript(e.getText().toString());}).setNegativeButton("Отмена",null).show();}
     private void toggleCamera(){
         if(cameraEnabled){cameraEnabled=false;getSharedPreferences("martin",0).edit().putBoolean("camera_enabled",false).apply();faceTracker.stop();cameraHelp.setText("Камера выключена");return;}
