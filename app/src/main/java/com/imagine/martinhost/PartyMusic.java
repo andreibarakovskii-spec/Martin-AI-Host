@@ -27,7 +27,7 @@ public final class PartyMusic {
  public void clear(){stop();tracks.clear();save();}
  public void duck(boolean value){ducked=value;applyVolume();}
  public void listeningVolume(){requestedVolume=.28f;ducked=false;applyVolume();}
- private void applyVolume(){float v=ducked?.08f:requestedVolume;if(player!=null)try{player.setVolume(v,v);}catch(Exception ignored){}yandex.setVolume(v);}
+ private void applyVolume(){float local=ducked?.08f:requestedVolume;if(player!=null)try{player.setVolume(local,local);}catch(Exception ignored){}float direct=ducked?.08f:.50f;yandex.setVolume(direct);}
  public boolean isPlaying(){try{return (player!=null&&player.isPlaying())||yandex.isPlaying();}catch(Exception e){return false;}}
  public boolean isBackgroundPlaying(){return backgroundMode&&isPlaying();}
  public void play(int i){if(tracks.isEmpty()){emit("Добавьте аудиофайлы");return;}index=(i+tracks.size())%tracks.size();requestedVolume=1f;Track t=tracks.get(index);open(t.uri,t.artist+" — "+t.title,0,null,false);}
