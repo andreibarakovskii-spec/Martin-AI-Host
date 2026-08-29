@@ -20,7 +20,7 @@ public final class PartyDirector {
  private Mode mode=Mode.FREE;
  private PartyGames.Game game;
  private PartyGames.Round round;
- private int index=-1,score=0,pendingAwardPoints=1;
+ private int index=-1,score=0,pendingAwardPoints=1,playbackComplaints=0;
  private String musicUri;
  private String suggestedGuest="";
  private String offeredGame="";
@@ -47,6 +47,17 @@ public final class PartyDirector {
   if(!l.contains("мелод")&&!l.contains("песн"))return false;
   return l.contains("угада")||l.contains("отгада")||l.contains("отгода")||l.contains("угода")||l.contains("угадай музыку");
  }
+ private boolean exitCommand(String l){
+  if(l==null||l.isBlank())return false;
+  if(l.equals("стоп игра")||l.equals("стоп конкурс")||l.equals("отмена конкурса")||l.equals("выход из игры"))return true;
+  if((l.contains("законч")||l.contains("заверш")||l.contains("останов"))&&(l.contains("игр")||l.contains("конкурс")))return true;
+  if(l.contains("хватит играть")||l.contains("больше не играем")||l.contains("вернемся к разговору")||l.contains("вернуться к разговору")||l.contains("вернёмся к разговору"))return true;
+  return mode!=Mode.FREE&&(l.equals("хватит")||l.equals("заканчиваем"));
+ }
+ private boolean playbackComplaint(String l){
+  if(l==null)return false;
+  return l.contains("не включил пес")||l.contains("не включилась пес")||l.contains("не играет")||l.contains("музыки нет")||l.contains("нет музыки")||l.contains("ничего не играет")||l.contains("тишина")||l.contains("не слышно пес");
+ }
 
  public Action startChgk(){return startGame("chgk");}
  public Action offerGame(String id){
@@ -57,7 +68,7 @@ public final class PartyDirector {
  }
 
  public Action startGame(String id){
-  game=PartyGames.get(id);index=-1;score=0;pendingAwardPoints=1;round=null;musicUri=null;musicRounds.clear();melodyRounds.clear();currentMelodyQuery="";currentMelodyAnswer="";
+  game=PartyGames.get(id);index=-1;score=0;pendingAwardPoints=1;playbackComplaints=0;round=null;musicUri=null;musicRounds.clear();melodyRounds.clear();currentMelodyQuery="";currentMelodyAnswer="";
   if(id.equals("melody")){
    melodyRounds.addAll(MelodyQuiz.partyRounds());
   }else if(id.equals("time_machine")){
@@ -66,15 +77,15 @@ public final class PartyDirector {
    Collections.shuffle(musicRounds);
   }
   mode=Mode.RULES;remember("game_start","",game.title,false);
-  if(id.equals("melody"))return local("Игра «Угадай мелодию». Восемнадцать раундов: шесть простых, шесть средних и шесть сложных. Я включаю примерно шесть секунд из Яндекс Музыки. Назовите песню или исполнителя — один балл. Финальный раунд стоит три балла. Можно сказать «ещё раз». После ответа я сам веду игру дальше. Правила понятны? Начинаем?");
-  return local("Игра «"+game.title+"». "+game.rules+" Пример: "+game.example+" Правила понятны? Начинаем?");
+  if(id.equals("melody"))return local("Игра «Угадай мелодию». Восемнадцать раундов: шесть простых, шесть средних и шесть сложных. Я включаю примерно шесть секунд из Яндекс Музыки. Назовите песню или исполнителя — один балл. Финальный раунд стоит три балла. Можно сказать «ещё раз». В любой момент можно сказать «закончим игру». Правила понятны? Начинаем?");
+  return local("Игра «"+game.title+"». "+game.rules+" Пример: "+game.example+" В любой момент можно сказать «закончим игру». Правила понятны? Начинаем?");
  }
 
- public Action cancel(){String title=game==null?"конкурс":game.title;mode=Mode.FREE;game=null;musicUri=null;currentMelodyQuery="";currentMelodyAnswer="";pendingAwardPoints=1;remember("game_end","",title,false);return local("Конкурс остановлен. Возвращаемся к разговору.");}
+ public Action cancel(){String title=game==null?"конкурс":game.title;mode=Mode.FREE;game=null;round=null;musicUri=null;currentMelodyQuery="";currentMelodyAnswer="";pendingAwardPoints=1;playbackComplaints=0;remember("game_end","",title,false);return local("Игра закончена. Возвращаемся к обычному разговору и музыке.");}
 
  public Action next(){
   if(game==null)return local("Сначала выберите игру.");
-  index++;
+  index++;playbackComplaints=0;
   int count=isMelody()?melodyRounds.size():(musicRounds.isEmpty()?game.rounds.size():Math.min(6,musicRounds.size()));
   if(index>=count){
    String title=game.title;String s;
@@ -82,7 +93,7 @@ public final class PartyDirector {
     String board=leaderboard();String nominations=memory==null?"":memory.closingNominations(guests);
     s="Финал. Музыкальная викторина закончена. "+board+(nominations.isBlank()?"":" "+nominations)+" Отличная работа. Возвращаю музыку.";
    }else s="Игра закончена! Баллов в этом конкурсе: "+score+". Баллы гостей сохранены. Можно выбрать следующий конкурс.";
-   remember("game_end","",title,false);mode=Mode.FREE;game=null;musicUri=null;currentMelodyQuery="";currentMelodyAnswer="";pendingAwardPoints=1;return local(s);
+   remember("game_end","",title,false);mode=Mode.FREE;game=null;round=null;musicUri=null;currentMelodyQuery="";currentMelodyAnswer="";pendingAwardPoints=1;playbackComplaints=0;return local(s);
   }
   mode=Mode.WAIT_ANSWER;pendingAwardPoints=1;
   if(isMelody()){
@@ -152,7 +163,7 @@ public final class PartyDirector {
  public Action onUserText(String raw){
   String t=raw==null?"":raw.trim(),l=PartyGames.normal(t);
   if(memory!=null&&mode==Mode.FREE)memory.observeSpeech(suggestedGuest,t);
-  if(l.equals("закончить игру")||l.equals("стоп игра")||l.equals("отмена конкурса"))return cancel();
+  if(exitCommand(l))return cancel();
 
   if(mode==Mode.FREE){
    if(looksLikeMelodyRequest(l))return startGame("melody");
@@ -170,20 +181,26 @@ public final class PartyDirector {
   }
 
   if(l.equals("правила")||l.equals("повтори правила")){
-   if(isMelody())return local("Восемнадцать раундов. Слушаем шесть секунд. Назовите песню или исполнителя. Обычно один балл, финал — три. «Ещё раз» повторяет фрагмент. Когда готовы, скажите «начинаем».");
+   if(isMelody())return local("Восемнадцать раундов. Слушаем шесть секунд. Назовите песню или исполнителя. Обычно один балл, финал — три. «Ещё раз» повторяет фрагмент. «Закончим игру» сразу выходит. Когда готовы, скажите «начинаем».");
    return local(game.rules+" Когда готовы, скажите «начинаем».");
   }
 
+  if(mode==Mode.WAIT_ANSWER&&isMelody()&&playbackComplaint(l)){
+   playbackComplaints++;
+   if(playbackComplaints>=2){String title=game.title;remember("game_end","",title,false);mode=Mode.FREE;game=null;round=null;musicUri=null;currentMelodyQuery="";currentMelodyAnswer="";pendingAwardPoints=1;playbackComplaints=0;return local("Музыка не запускается второй раз. Останавливаю игру, чтобы не зациклиться. Откройте раздел «Музыка», подключите Яндекс и нажмите тест.");}
+   musicUri="yandex:"+currentMelodyQuery;return local("Песня действительно не прозвучала. Не считаю это ответом. Повторяю текущий фрагмент один раз.");
+  }
+
   if(mode==Mode.WAIT_ANSWER&&isMelody()&&PartyGames.matches(l,"еще раз|ещё раз|повтори|повтори фрагмент|повтори песню")){
-   musicUri="yandex:"+currentMelodyQuery;remember("melody_replay",suggestedGuest,currentMelodyAnswer,true);return local("Повторяю тот же фрагмент. Проверка продолжается.");
+   musicUri="yandex:"+currentMelodyQuery;remember("melody_replay",suggestedGuest,currentMelodyAnswer,true);return local("Повторяю тот же фрагмент.");
   }
 
   if(l.equals("дальше")||l.equals("следующий")||l.equals("пропустить"))return next();
   if(l.equals("покажи ответ")||l.equals("не знаем")||l.equals("сдаемся")||l.equals("сдаёмся"))return reveal();
 
   if(mode==Mode.RULES){
-   if(PartyGames.matches(l,"да|начинаем|готовы|поехали"))return next();
-   return local("Начнём после слова «начинаем». Правила можно повторить, конкурс — отменить.");
+   if(PartyGames.matches(l,"да|начинаем|начинай|готовы|поехали|старт"))return next();
+   return local("Начнём после слова «начинаем» или «старт». Правила можно повторить, игру — закончить в любой момент.");
   }
 
   if(mode==Mode.WAIT_NAME){
@@ -196,7 +213,7 @@ public final class PartyDirector {
    return local(name+", один балл записан. Скажите «дальше».");
   }
 
-  if(mode==Mode.RESULT)return local("Раунд завершён. Скажите «дальше» или «закончить игру».");
+  if(mode==Mode.RESULT)return local("Раунд завершён. Скажите «дальше» или «закончим игру».");
 
   if(mode==Mode.WAIT_ANSWER){
    if(round.judged)return local("Ответ оценивает организатор: нажмите «Засчитать» или скажите «дальше». Я не буду оценивать человека по камере.");
@@ -204,7 +221,7 @@ public final class PartyDirector {
    if(!l.startsWith("ответ ")&&!musicGame)return local("Можете обсудить. Окончательный вариант начните со слова «ответ».");
    String candidate=l.startsWith("ответ ")?l.substring(6):l;
    if(PartyGames.matches(candidate,round.answer))return award();
-   if(isMelody()){remember("melody_miss",suggestedGuest,candidate,true);return local(missReaction()+" Ещё версия, «ещё раз» для повтора или «покажи ответ».");}
+   if(isMelody()){remember("melody_miss",suggestedGuest,candidate,true);return local(missReaction()+" Ещё версия, «ещё раз» для повтора, «покажи ответ» или «закончим игру».");}
    if(musicGame)return local("Не совпало. Попробуйте ещё раз или скажите «покажи ответ».");
    return local("Пока не совпало. Можно ещё раз, «покажи ответ» или «дальше».");
   }
