@@ -1,14 +1,93 @@
 package com.imagine.martinhost;
 import android.app.Activity;import android.graphics.Color;import android.net.Uri;import android.os.*;import android.view.*;import android.webkit.*;
-/** Hidden web player sharing the cookies created by the visible login screen. */
+
+/** Hidden Yandex Music web player sharing cookies with the visible login screen. */
 final class YandexMusicPlayback {
- private static WebView web;private static Activity owner;private static final Handler ui=new Handler(Looper.getMainLooper());private static String pending="";
- static void attach(Activity a,ViewGroup root){release();owner=a;web=new WebView(a);web.setBackgroundColor(Color.TRANSPARENT);web.setAlpha(.01f);root.addView(web,new ViewGroup.LayoutParams(2,2));WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setDatabaseEnabled(true);s.setMediaPlaybackRequiresUserGesture(false);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSafeBrowsingEnabled(true);CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(web,true);web.setWebViewClient(new WebViewClient(){@Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return !allowed(r.getUrl());}@Override public void onPageFinished(WebView v,String url){if(!pending.isBlank())schedule();}});}
- static boolean play(String q){if(web==null||q==null||q.isBlank())return false;pending=q;DiagnosticRecorder.get(owner).event("music_web","search_start;query="+q);web.loadUrl("https://music.yandex.ru/search?text="+Uri.encode(q));return true;}
- private static void schedule(){for(long d:new long[]{700,1800,3500,6000})ui.postDelayed(YandexMusicPlayback::tryClick,d);}
- private static void tryClick(){if(web==null||pending.isBlank())return;String js="(()=>{const vis=e=>e&&e.getClientRects().length>0;const txt=e=>((e.getAttribute('aria-label')||'')+' '+(e.title||'')+' '+(e.textContent||'')).toLowerCase();const links=[...document.querySelectorAll('a[href*=\\\"/track/\\\"],a[href*=\\\"trackId=\\\"]')].filter(vis);if(links.length){const row=links[0].closest('[data-test-id],article,li,div');const b=row&&[...row.querySelectorAll('button,[role=button]')].find(x=>vis(x)&&/(воспроиз|слушать|play)/.test(txt(x)));if(b){b.click();return 'row-play';}if(!location.href.includes('/track/')){links[0].click();return 'open-track';}}const b=[...document.querySelectorAll('button,[role=button]')].find(x=>vis(x)&&/(воспроизвести|слушать|play)/.test(txt(x)));if(b){b.click();return 'page-play';}return 'not-found';})()";web.evaluateJavascript(js,r->{DiagnosticRecorder.get(owner).event("music_web","automation="+r);if(r!=null&&r.contains("play"))pending="";});}
- static void stop(){pending="";if(web!=null)web.evaluateJavascript("document.querySelectorAll('audio,video').forEach(x=>x.pause())",null);}
- static void release(){ui.removeCallbacksAndMessages(null);if(web!=null){web.stopLoading();web.destroy();web=null;}owner=null;pending="";}
+ private static WebView web;private static Activity owner;private static final Handler ui=new Handler(Looper.getMainLooper());
+ private static String pending="";private static int generation,fragmentMs;private static Runnable fragmentDone,failSafe;
+
+ static void attach(Activity a,ViewGroup root){
+  release();owner=a;web=new WebView(a);web.setBackgroundColor(Color.TRANSPARENT);web.setAlpha(.01f);root.addView(web,new ViewGroup.LayoutParams(2,2));
+  WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setDatabaseEnabled(true);s.setMediaPlaybackRequiresUserGesture(false);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSafeBrowsingEnabled(true);
+  CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(web,true);
+  web.setWebViewClient(new WebViewClient(){
+   @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return !allowed(r.getUrl());}
+   @Override public void onPageFinished(WebView v,String url){if(!pending.isBlank())schedule(generation);}
+  });
+ }
+
+ static boolean play(String q){return begin(q,0,null);}
+ static boolean playFragment(String q,int seconds,Runnable done){return begin(q,Math.max(3,Math.min(9,seconds))*1000,done);}
+
+ private static boolean begin(String q,int durationMs,Runnable done){
+  if(web==null||q==null||q.isBlank())return false;
+  stopInternal(false);
+  int token=++generation;pending=q;fragmentMs=durationMs;fragmentDone=done;
+  DiagnosticRecorder.get(owner).event("music_web",(durationMs>0?"fragment_start":"search_start")+";query="+q);
+  web.loadUrl("https://music.yandex.ru/search?text="+Uri.encode(q));
+  if(durationMs>0){
+   failSafe=()->{if(token!=generation)return;DiagnosticRecorder.get(owner).event("music_web","fragment_timeout;query="+q);finishFragment(token);};
+   ui.postDelayed(failSafe,14000);
+  }
+  return true;
+ }
+
+ private static void schedule(int token){for(long d:new long[]{650,1600,3000,5000,7500})ui.postDelayed(()->tryClick(token),d);}
+
+ private static void tryClick(int token){
+  if(web==null||pending.isBlank()||token!=generation)return;
+  String js="(()=>{const txt=e=>((e&&e.getAttribute&&e.getAttribute('aria-label')||'')+' '+(e&&e.title||'')+' '+(e&&e.textContent||'')).toLowerCase();"
+   +"const links=[...document.querySelectorAll('a[href*=\\\"/track/\\\"],a[href*=\\\"trackId=\\\"]')];"
+   +"if(links.length){const row=links[0].closest('[data-test-id],article,li,div');const buttons=row?[...row.querySelectorAll('button,[role=button]')]:[];"
+   +"const b=buttons.find(x=>/(воспроиз|слушать|play)/.test(txt(x)));if(b){b.click();return 'row-play';}"
+   +"if(!location.href.includes('/track/')){links[0].click();return 'open-track';}}"
+   +"const b=[...document.querySelectorAll('button,[role=button]')].find(x=>/(воспроизвести|слушать|play)/.test(txt(x)));if(b){b.click();return 'page-play';}"
+   +"return 'not-found';})()";
+  web.evaluateJavascript(js,r->{
+   if(token!=generation)return;
+   DiagnosticRecorder.get(owner).event("music_web","automation="+r);
+   if(r!=null&&r.contains("-play")){
+    String q=pending;pending="";
+    if(fragmentMs>0){
+     int delay=fragmentMs;ui.postDelayed(()->seekIntoTrack(token,q),450);
+     ui.postDelayed(()->finishFragment(token),delay+650L);
+    }
+   }
+  });
+ }
+
+ private static void seekIntoTrack(int token,String q){
+  if(web==null||token!=generation)return;
+  int pct=28+Math.abs((q==null?0:q.hashCode())%25);
+  String js="(()=>{const a=document.querySelector('audio,video');if(!a||!isFinite(a.duration)||a.duration<45)return 'no-seek';"
+   +"const t=Math.min(a.duration-12,Math.max(8,a.duration*"+pct+"/100));try{a.currentTime=t;return 'seek:'+Math.round(t);}catch(e){return 'seek-error';}})()";
+  web.evaluateJavascript(js,r->DiagnosticRecorder.get(owner).event("music_web","fragment_"+r));
+ }
+
+ private static void finishFragment(int token){
+  if(token!=generation)return;
+  if(failSafe!=null){ui.removeCallbacks(failSafe);failSafe=null;}
+  pausePage();
+  Runnable done=fragmentDone;fragmentDone=null;fragmentMs=0;pending="";
+  DiagnosticRecorder.get(owner).event("music_web","fragment_done");
+  if(done!=null)done.run();
+ }
+
+ static void stop(){stopInternal(true);}
+ private static void stopInternal(boolean bumpGeneration){
+  if(bumpGeneration)generation++;
+  ui.removeCallbacksAndMessages(null);pending="";fragmentMs=0;fragmentDone=null;failSafe=null;pausePage();
+ }
+
+ private static void pausePage(){
+  if(web==null)return;
+  String js="(()=>{document.querySelectorAll('audio,video').forEach(x=>{try{x.pause()}catch(e){}});"
+   +"const txt=e=>((e.getAttribute('aria-label')||'')+' '+(e.title||'')+' '+(e.textContent||'')).toLowerCase();"
+   +"const b=[...document.querySelectorAll('button,[role=button]')].find(x=>/(пауза|pause)/.test(txt(x)));if(b){try{b.click();return 'pause-click';}catch(e){}}return 'paused';})()";
+  web.evaluateJavascript(js,null);
+ }
+
+ static void release(){stopInternal(true);if(web!=null){web.stopLoading();web.destroy();web=null;}owner=null;}
  private static boolean allowed(Uri u){String h=u.getHost();return "https".equalsIgnoreCase(u.getScheme())&&h!=null&&(h.equals("yandex.ru")||h.endsWith(".yandex.ru")||h.equals("yandex.com")||h.endsWith(".yandex.com")||h.equals("yandex.net")||h.endsWith(".yandex.net")||h.equals("ya.ru")||h.endsWith(".ya.ru"));}
  private YandexMusicPlayback(){}
 }
