@@ -279,6 +279,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         root.addView(nav, new LinearLayout.LayoutParams(-1, dp(66)));
 
         setContentView(root);
+        YandexMusicPlayback.attach(this,root);
         menu.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setTitle("Ведущий")
             .setItems(new String[]{"Приветствие","Тост для Кати","Закончить конкурс","Очистить память диалога","Посмотри в камеру","Диагностика: лог + аудио"},(d,w)->{cancelCurrent();if(w==5){startActivity(new Intent(this,DiagnosticsActivity.class));return;}if(w==4){requestVisualReply("Что сейчас видно перед камерой? Ответь коротко и дружелюбно.");return;}if(w==2)runDirectorAction(director.cancel());else if(w==3){grok.clearHistory();turns.forceListen();reply.setText("История диалога очищена");}else handleTranscript(w==0?"Поздоровайся с Катей и гостями, предложи начать праздник":"тост для Кати");}).show());
         gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
@@ -308,6 +309,7 @@ public final class PremiumMainActivity extends FragmentActivity {
         heard.setText("Вы: " + t);
         lastHumanAt=System.currentTimeMillis();
         String low = t.toLowerCase(Locale.ROOT);
+        if(low.contains("выключи музыку")||low.contains("останови музыку")||low.equals("музыка стоп")){YandexMusicPlayback.stop();speak("Музыка остановлена. Это норма.","neutral",.45f);return;}
         if (low.contains("сергей стоп") || low.contains("мартин стоп") || low.equals("стоп")) { stopAudio(); return; }
 
         String musicRequest=MusicRequestRouter.extract(t);
@@ -529,7 +531,7 @@ public final class PremiumMainActivity extends FragmentActivity {
     }
 
     @Override protected void onDestroy() {
-        destroyed=true;
+        destroyed=true;YandexMusicPlayback.release();
         partyTimer.removeCallbacksAndMessages(null);
         if(grok!=null)grok.close();
         if(turns!=null)turns.forceListen();
