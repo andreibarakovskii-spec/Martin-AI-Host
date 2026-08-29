@@ -131,7 +131,7 @@ public final class YandexMusicClient {
         return bestScore>=80?best:first;
     }
 
-    private static TrackInfo trackInfo(JSONObject t){
+    private static TrackInfo trackInfo(JSONObject t)throws Exception{
         String artist="";
         JSONArray artists=t.optJSONArray("artists");
         if(artists!=null&&artists.length()>0)artist=artists.getJSONObject(0).optString("name","");
@@ -190,9 +190,6 @@ public final class YandexMusicClient {
         return "https://"+host+"/get-mp3/"+sign+"/"+ts+path;
     }
 
-    /** Android 15 on some OEMs does not implement Xerces feature flags used by DocumentBuilderFactory.
-     *  The Yandex response is a tiny fixed XML envelope, so parse only the four known text tags and
-     *  reject DTD/entity declarations instead of invoking a general XML parser. */
     static String[] parseDownloadInfo(byte[] data)throws Exception{
         String xml=new String(data==null?new byte[0]:data,StandardCharsets.UTF_8);
         String upper=xml.toUpperCase(Locale.ROOT);
