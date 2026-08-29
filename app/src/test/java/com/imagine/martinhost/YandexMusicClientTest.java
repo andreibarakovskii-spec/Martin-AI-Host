@@ -13,4 +13,6 @@ public class YandexMusicClientTest {
  }
  @Test public void quizPrefersPreviewAndStableBitrate(){assertTrue(YandexMusicClient.candidateRank(true,true,192)<YandexMusicClient.candidateRank(true,false,192));assertTrue(YandexMusicClient.candidateRank(true,true,192)<YandexMusicClient.candidateRank(true,true,320));}
  @Test public void fullPlaybackPrefersNonPreview(){assertTrue(YandexMusicClient.candidateRank(false,false,192)<YandexMusicClient.candidateRank(false,true,192));}
+ @Test public void exactArtistBeatsCoverWithSameTitle(){int cover=YandexMusicClient.trackMatchScore("Вирус Ты меня не ищи","Ты меня не ищи","DK");int original=YandexMusicClient.trackMatchScore("Вирус Ты меня не ищи","Ты меня не ищи","Вирус!");assertTrue(original>cover+50);assertTrue(original>=80);}
+ @Test public void punctuationDoesNotBreakKnownArtistMatch(){assertTrue(YandexMusicClient.trackMatchScore("t.A.T.u. Нас не догонят","Нас не догонят","t.A.T.u.")>=80);}
 }
