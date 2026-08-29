@@ -93,10 +93,11 @@ public final class PartyDirector {
   if(mode==Mode.RESULT)return local("Раунд завершён. Скажите «дальше» или «закончить игру».");
   if(mode==Mode.WAIT_ANSWER){
    if(round.judged)return local("Ответ оценивает организатор: нажмите «Засчитать» или скажите «дальше». Я не буду оценивать человека по камере.");
+   boolean musicGame=game!=null&&(game.id.equals("melody")||game.id.equals("time_machine"));
+   if(!l.startsWith("ответ ")&&!musicGame)return local("Можете обсудить. Окончательный вариант начните со слова «ответ».");
    String candidate=l.startsWith("ответ ")?l.substring(6):l;
    if(PartyGames.matches(candidate,round.answer))return award();
-   if(game!=null&&(game.id.equals("melody")||game.id.equals("time_machine")))return local("Не совпало. Попробуйте ещё раз или скажите «покажи ответ».");
-   if(!l.startsWith("ответ "))return local("Можете обсудить. Окончательный вариант начните со слова «ответ».");
+   if(musicGame)return local("Не совпало. Попробуйте ещё раз или скажите «покажи ответ».");
    return local("Пока не совпало. Можно ещё раз, «покажи ответ» или «дальше».");
   }
   return local("Скажите «дальше».");
