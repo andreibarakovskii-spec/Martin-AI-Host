@@ -7,8 +7,6 @@ import android.os.Handler;
 import android.os.Looper;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.w3c.dom.Document;
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -18,7 +16,8 @@ import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import javax.xml.parsers.DocumentBuilderFactory;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Direct Yandex Music playback after OAuth. WebView is used only for sign-in. */
 public final class YandexMusicClient {
@@ -133,17 +132,30 @@ public final class YandexMusicClient {
         if(best==null)throw new IllegalStateException("Нет совместимого MP3-потока");
         String infoUrl=best.optString("downloadInfoUrl","");
         if(infoUrl.isBlank())throw new IllegalStateException("Яндекс не вернул downloadInfoUrl");
-        byte[] xml=getBytes(infoUrl,false);
-        DocumentBuilderFactory factory=DocumentBuilderFactory.newInstance();
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);
-        factory.setFeature("http://xml.org/sax/features/external-general-entities",false);
-        factory.setFeature("http://xml.org/sax/features/external-parameter-entities",false);
-        Document doc=factory.newDocumentBuilder().parse(new ByteArrayInputStream(xml));
-        String host=text(doc,"host"),path=text(doc,"path"),ts=text(doc,"ts"),s=text(doc,"s");
-        if(host.isBlank()||path.isBlank()||ts.isBlank()||s.isBlank())throw new IllegalStateException("Не удалось разобрать поток Яндекс Музыки");
+        String[] info=parseDownloadInfo(getBytes(infoUrl,false));
+        String host=info[0],path=info[1],ts=info[2],s=info[3];
         String payload=SIGN_SALT+(path.startsWith("/")?path.substring(1):path)+s;
         String sign=md5(payload);
         return "https://"+host+"/get-mp3/"+sign+"/"+ts+path;
+    }
+
+    /** Android 15 on some OEMs does not implement Xerces feature flags used by DocumentBuilderFactory.
+     *  The Yandex response is a tiny fixed XML envelope, so parse only the four known text tags and
+     *  reject DTD/entity declarations instead of invoking a general XML parser. */
+    static String[] parseDownloadInfo(byte[] data)throws Exception{
+        String xml=new String(data==null?new byte[0]:data,StandardCharsets.UTF_8);
+        String upper=xml.toUpperCase(Locale.ROOT);
+        if(upper.contains("<!DOCTYPE")||upper.contains("<!ENTITY"))throw new IllegalStateException("Небезопасный ответ потока Яндекс Музыки");
+        String host=xmlTag(xml,"host"),path=xmlTag(xml,"path"),ts=xmlTag(xml,"ts"),s=xmlTag(xml,"s");
+        if(host.isBlank()||path.isBlank()||ts.isBlank()||s.isBlank())throw new IllegalStateException("Не удалось разобрать поток Яндекс Музыки");
+        return new String[]{host,path,ts,s};
+    }
+    private static String xmlTag(String xml,String tag){
+        Matcher m=Pattern.compile("<"+tag+">(.*?)</"+tag+">",Pattern.CASE_INSENSITIVE|Pattern.DOTALL).matcher(xml==null?"":xml);
+        return m.find()?xmlUnescape(m.group(1).trim()):"";
+    }
+    private static String xmlUnescape(String s){
+        return s.replace("&amp;","&").replace("&lt;","<").replace("&gt;",">").replace("&quot;","\"").replace("&apos;","'");
     }
 
     private void prepareAndPlay(String stream,TrackInfo track,int fragmentSeconds,Callback cb,int tokenGeneration){
@@ -213,16 +225,15 @@ public final class YandexMusicClient {
     private byte[] getBytes(String url,boolean auth)throws Exception{
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
         try{
-            c.setConnectTimeout(15000);c.setReadTimeout(25000);c.setRequestProperty("Accept","application/json, text/xml, */*");c.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9");c.setRequestProperty("User-Agent","SergeyAIHost/0.10.2 Android");
+            c.setConnectTimeout(15000);c.setReadTimeout(25000);c.setRequestProperty("Accept","application/json, text/xml, */*");c.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9");c.setRequestProperty("User-Agent","SergeyAIHost/0.10.3 Android");
             if(auth)c.setRequestProperty("Authorization","OAuth "+token());
             int code=c.getResponseCode();
             InputStream in=code>=200&&code<300?c.getInputStream():c.getErrorStream();
-            byte[] data=in==null?new byte[0]:in.readAllBytes();
-            if(code<200||code>=300)throw new IllegalStateException("Яндекс Музыка HTTP "+code+": "+new String(data,StandardCharsets.UTF_8));
-            return data;
+            byte[] bytes=in==null?new byte[0]:in.readAllBytes();
+            if(code<200||code>=300)throw new IllegalStateException("Яндекс Музыка HTTP "+code+": "+new String(bytes,StandardCharsets.UTF_8));
+            return bytes;
         }finally{c.disconnect();}
     }
-    private static String text(Document doc,String tag){return doc.getElementsByTagName(tag).getLength()==0?"":doc.getElementsByTagName(tag).item(0).getTextContent();}
     static String md5(String s)throws Exception{
         byte[] d=MessageDigest.getInstance("MD5").digest(s.getBytes(StandardCharsets.UTF_8));
         StringBuilder out=new StringBuilder();for(byte b:d)out.append(String.format(Locale.ROOT,"%02x",b&0xff));return out.toString();

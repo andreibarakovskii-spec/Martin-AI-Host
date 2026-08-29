@@ -45,7 +45,8 @@ public final class PartyDirector {
   if(l==null)return false;
   if(l.contains("музыкальн")&&(l.contains("виктор")||l.contains("игр")))return true;
   if(!l.contains("мелод")&&!l.contains("песн"))return false;
-  return l.contains("угада")||l.contains("отгада")||l.contains("отгода")||l.contains("угода")||l.contains("угадай музыку");
+  if(l.contains("угада")||l.contains("отгада")||l.contains("отгода")||l.contains("угода")||l.contains("ангода")||l.contains("ангада"))return true;
+  return l.contains("сыгра")||l.contains("поигра")||l.contains("играем")||l.contains("играть");
  }
  private boolean exitCommand(String l){
   if(l==null||l.isBlank())return false;
