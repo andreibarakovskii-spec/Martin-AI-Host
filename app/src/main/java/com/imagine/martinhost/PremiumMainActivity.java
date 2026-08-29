@@ -528,6 +528,11 @@ public final class PremiumMainActivity extends FragmentActivity {
         setCameraDot(cameraEnabled && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED, "Локальная привязка имени к отслеживаемому лицу");
     }
 
+    private void setVoiceDot(boolean ok) {
+        voiceDot.setText(ok ? "● ГОЛОС" : "● ГОЛОС?");
+        voiceDot.setTextColor(ok ? 0xFF58E6A9 : 0xFFFFB35C);
+    }
+
     private void requestPerms() {
         ArrayList<String> p = new ArrayList<>();
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) p.add(Manifest.permission.RECORD_AUDIO);
