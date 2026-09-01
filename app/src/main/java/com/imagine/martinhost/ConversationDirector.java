@@ -1,12 +1,8 @@
 package com.imagine.martinhost;
 
-/**
- * First deterministic routing layer for the personal companion.
- * It decides whether a transcript should be ignored, handled locally, or sent to the LLM.
- * The LLM remains responsible for language generation, not basic turn ownership.
- */
+/** Deterministic routing layer for imagination / IMA. */
 public final class ConversationDirector {
-    public enum Kind { IGNORE, RESPOND, STOP, MUSIC, VISION }
+    public enum Kind { IGNORE, RESPOND, STOP, CONTINUE, MUSIC, VISION }
 
     public static final class Decision {
         public final Kind kind;
@@ -43,31 +39,33 @@ public final class ConversationDirector {
         AttentionManager.Attention a = attention.classify(raw, inWindow);
 
         if (raw.isBlank()) return new Decision(Kind.IGNORE, "", "blank", a);
-
         if (isStop(n)) {
-            conversationActive = false;
             lastDirectedAtMs = nowMs;
             return new Decision(Kind.STOP, "", "stop_or_interrupt", AttentionManager.Attention.DIRECT);
         }
-
+        if (isContinue(n)) {
+            markActive(nowMs);
+            return new Decision(Kind.CONTINUE, "", "continue_previous_answer", AttentionManager.Attention.DIRECT);
+        }
         if (looksLikeVision(n)) {
             markActive(nowMs);
             return new Decision(Kind.VISION, stripAssistantName(raw), "vision_request", a);
         }
-
         if (looksLikeMusic(n)) {
             markActive(nowMs);
             return new Decision(Kind.MUSIC, raw, "music_request", a);
         }
-
         if (a == AttentionManager.Attention.AMBIENT) {
             return new Decision(Kind.IGNORE, "", "ambient_or_not_addressed", a);
         }
 
         String q = stripAssistantName(raw);
         if (q.isBlank()) q = "Я здесь. Что хочешь обсудить?";
+        if (looksLikeRepair(n)) {
+            q = "Исправление пользователя к предыдущей реплике: " + q + ". Прими исправление и продолжи исходную тему без повторения ошибки.";
+        }
         markActive(nowMs);
-        return new Decision(Kind.RESPOND, q, a == AttentionManager.Attention.DIRECT ? "direct" : "continuation", a);
+        return new Decision(Kind.RESPOND, q, looksLikeRepair(n) ? "repair" : (a == AttentionManager.Attention.DIRECT ? "direct" : "continuation"), a);
     }
 
     private void markActive(long nowMs) {
@@ -76,8 +74,16 @@ public final class ConversationDirector {
     }
 
     static boolean isStop(String n) {
-        return n.matches("^(сергей |мартин )?(стоп|подожди|погоди|стой|замолчи|хватит)( пожалуйста)?$")
+        return n.matches("^(има |ima |ассистент )?(стоп|подожди|погоди|стой|замолчи|хватит)( пожалуйста)?$")
                 || n.matches("^(не надо|отмена)$");
+    }
+
+    static boolean isContinue(String n) {
+        return n.matches("^(има |ima )?(продолжи|продолжай|договори)( пожалуйста)?$");
+    }
+
+    static boolean looksLikeRepair(String n) {
+        return n.matches(".*\\b(не так|я имел в виду|я имела в виду|я про другое|точнее|нет речь не|не речь а|мне нужна|мне нужен)\\b.*");
     }
 
     static boolean looksLikeMusic(String n) {
@@ -91,6 +97,6 @@ public final class ConversationDirector {
 
     static String stripAssistantName(String raw) {
         if (raw == null) return "";
-        return raw.replaceFirst("(?iu)^\\s*(?:сергей|мартин|ассистент)[,.:;!?\\s—-]*", "").trim();
+        return raw.replaceFirst("(?iu)^\\s*(?:има|ima|ассистент)[,.:;!?\\s—-]*", "").trim();
     }
 }
