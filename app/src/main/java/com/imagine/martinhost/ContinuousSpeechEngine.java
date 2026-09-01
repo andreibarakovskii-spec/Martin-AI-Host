@@ -14,10 +14,11 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 
-/** Continuous capture with adaptive VAD, pre-roll and hardware AEC/NS when available. */
+/** Continuous capture with adaptive VAD, pre-roll, AEC/NS and a strict TTS interrupt monitor. */
 public final class ContinuousSpeechEngine {
     public interface Listener {
         void onSpeechChunk(byte[] wav16kMono);
+        default void onInterruptChunk(byte[] wav16kMono) { }
         void onLevel(float rmsDb, float noiseFloorDb, boolean speech);
         void onStatus(String status);
         void onError(String error);
@@ -31,6 +32,13 @@ public final class ContinuousSpeechEngine {
     private static final int MIN_SPEECH_MS = 160;
     private static final int END_SILENCE_MS = 750;
     private static final int MAX_UTTERANCE_MS = 14000;
+
+    private static final int INTERRUPT_PRE_ROLL_MS = 180;
+    private static final int INTERRUPT_PRE_ROLL_FRAMES = INTERRUPT_PRE_ROLL_MS / FRAME_MS;
+    private static final int INTERRUPT_MIN_SPEECH_MS = 240;
+    private static final int INTERRUPT_END_SILENCE_MS = 260;
+    private static final int INTERRUPT_MAX_MS = 2400;
+    private static final int INTERRUPT_COOLDOWN_MS = 1200;
 
     private final Context context;
     private final Listener listener;
@@ -62,8 +70,8 @@ public final class ContinuousSpeechEngine {
             enableAudioFx(record.getAudioSessionId());
             running = true;
             record.startRecording();
-            DiagnosticRecorder.get(context).event("capture_start","rate=16000;frame_ms=20;pre_roll_ms=700;end_silence_ms=750;min_speech_ms=160;max_utterance_ms=14000;aec="+(aec!=null&&aec.getEnabled())+";ns="+(ns!=null&&ns.getEnabled())+";source=VOICE_COMMUNICATION;buffer_bytes="+bufferBytes);
-            thread = new Thread(this::captureLoop, "MartinContinuousAudio");
+            DiagnosticRecorder.get(context).event("capture_start","rate=16000;frame_ms=20;pre_roll_ms=700;end_silence_ms=750;min_speech_ms=160;max_utterance_ms=14000;interrupt_monitor=true;interrupt_min_ms=240;interrupt_max_ms=2400;aec="+(aec!=null&&aec.getEnabled())+";ns="+(ns!=null&&ns.getEnabled())+";source=VOICE_COMMUNICATION;buffer_bytes="+bufferBytes);
+            thread = new Thread(this::captureLoop, "CompanionContinuousAudio");
             thread.start();
             listener.onStatus("Непрерывное прослушивание включено");
         } catch (Exception e) {
@@ -106,10 +114,17 @@ public final class ContinuousSpeechEngine {
         ArrayDeque<short[]> preRoll = new ArrayDeque<>();
         ByteArrayOutputStream utterance = null;
         int speechMs = 0, silenceMs = 0, utteranceMs = 0;
+
+        ArrayDeque<short[]> interruptPreRoll = new ArrayDeque<>();
+        ByteArrayOutputStream interrupt = null;
+        int interruptSpeechMs=0,interruptSilenceMs=0,interruptMs=0;
+        long interruptCooldownUntil=0;
+
         float noiseDb = -48f;
-        boolean inSpeech = false;
+        boolean inSpeech = false, inInterrupt=false;
         long lastHealth=0,lastRead=android.os.SystemClock.elapsedRealtime();
         boolean previousBackground=false;long musicCalibrationUntil=0;
+        TurnManager.State previousTurn=turnManager.state();
 
         while (running && record != null) {
             int read;
@@ -123,6 +138,13 @@ public final class ContinuousSpeechEngine {
             DiagnosticRecorder.get(context).mic(copy,read);
             float rmsDb = rmsDb(copy);
             long now=android.os.SystemClock.elapsedRealtime();
+            TurnManager.State turn=turnManager.state();
+
+            if(turn!=previousTurn){
+                previousTurn=turn;
+                if(turn!=TurnManager.State.SPEAKING){interrupt=null;interruptPreRoll.clear();inInterrupt=false;interruptSpeechMs=interruptSilenceMs=interruptMs=0;}
+            }
+
             boolean background=PartyMusic.get(context).isBackgroundPlaying();
             if(background!=previousBackground){previousBackground=background;musicCalibrationUntil=background?now+1600:0;inSpeech=false;utterance=null;preRoll.clear();speechMs=silenceMs=utteranceMs=0;DiagnosticRecorder.get(context).event("vad_music_mode","background="+background);}
             if (!inSpeech && turnManager.acceptMicForStt()) {
@@ -132,12 +154,42 @@ public final class ContinuousSpeechEngine {
             }
             float threshold = Math.max(-43f, noiseDb + (background?12f:9f));
             boolean voiced = turnManager.acceptMicForStt() && now>=musicCalibrationUntil && rmsDb > threshold;
+
+            // Strict secondary monitor while TTS is playing. AEC is expected to remove most self speech;
+            // remaining candidates are still validated by BargeInPolicy after STT.
+            if(turn==TurnManager.State.SPEAKING){
+                float interruptThreshold=Math.max(-28f,noiseDb+18f);
+                boolean interruptVoiced=now>=interruptCooldownUntil && rmsDb>interruptThreshold;
+                if(!inInterrupt){
+                    interruptPreRoll.addLast(copy);
+                    while(interruptPreRoll.size()>INTERRUPT_PRE_ROLL_FRAMES)interruptPreRoll.removeFirst();
+                    if(interruptVoiced){
+                        inInterrupt=true;interruptSpeechMs=FRAME_MS;interruptSilenceMs=0;interruptMs=interruptPreRoll.size()*FRAME_MS;
+                        interrupt=new ByteArrayOutputStream(12000);
+                        for(short[] p:interruptPreRoll)writePcm(interrupt,p);interruptPreRoll.clear();
+                        DiagnosticRecorder.get(context).event("barge_candidate","rms_db="+rmsDb+";threshold_db="+interruptThreshold+";pre_roll_ms="+INTERRUPT_PRE_ROLL_MS);
+                    }
+                }else{
+                    writePcm(interrupt,copy);interruptMs+=FRAME_MS;
+                    if(interruptVoiced){interruptSpeechMs+=FRAME_MS;interruptSilenceMs=0;}else interruptSilenceMs+=FRAME_MS;
+                    boolean complete=interruptSilenceMs>=INTERRUPT_END_SILENCE_MS&&interruptSpeechMs>=INTERRUPT_MIN_SPEECH_MS;
+                    boolean tooLong=interruptMs>=INTERRUPT_MAX_MS;
+                    if(complete||tooLong){
+                        byte[] pcm=interrupt.toByteArray();
+                        DiagnosticRecorder.get(context).event("barge_audio_ready","reason="+(tooLong?"max_length":"silence")+";speech_ms="+interruptSpeechMs+";bytes="+pcm.length);
+                        listener.onInterruptChunk(wavFromPcm(pcm));
+                        interruptCooldownUntil=now+INTERRUPT_COOLDOWN_MS;
+                        inInterrupt=false;interrupt=null;interruptPreRoll.clear();interruptSpeechMs=interruptSilenceMs=interruptMs=0;
+                    }
+                }
+            }else{interrupt=null;interruptPreRoll.clear();inInterrupt=false;interruptSpeechMs=interruptSilenceMs=interruptMs=0;}
+
             listener.onLevel(rmsDb, noiseDb, voiced);
             if(now-lastRead>100)DiagnosticRecorder.get(context).event("capture_read_gap","ms="+(now-lastRead));lastRead=now;
             if(now-lastHealth>=200&&DiagnosticRecorder.get(context).active()){
                 int clipped=0,peak=0;for(short sample:copy){int v=Math.abs((int)sample);peak=Math.max(peak,v);if(v>=32760)clipped++;}
                 android.media.AudioDeviceInfo route=record==null?null:record.getRoutedDevice();
-                DiagnosticRecorder.get(context).event("mic_health","rms_db="+rmsDb+";noise_db="+noiseDb+";threshold_db="+threshold+";gate="+turnManager.acceptMicForStt()+";state="+turnManager.state()+";voiced="+voiced+";peak="+peak+";clipped_samples="+clipped+";read_samples="+read+";route_type="+(route==null?-1:route.getType()));lastHealth=now;
+                DiagnosticRecorder.get(context).event("mic_health","rms_db="+rmsDb+";noise_db="+noiseDb+";threshold_db="+threshold+";gate="+turnManager.acceptMicForStt()+";state="+turn+";voiced="+voiced+";interrupt_monitor="+(turn==TurnManager.State.SPEAKING)+";peak="+peak+";clipped_samples="+clipped+";read_samples="+read+";route_type="+(route==null?-1:route.getType()));lastHealth=now;
             }
 
             if (!inSpeech) {
