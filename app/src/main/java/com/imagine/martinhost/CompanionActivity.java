@@ -15,7 +15,7 @@ import android.widget.TextView;
 
 import androidx.fragment.app.FragmentActivity;
 
-/** Standalone personal Companion Core runtime. */
+/** Standalone imagination / IMA Companion Core runtime. */
 public final class CompanionActivity extends FragmentActivity {
     private static final int REQ_AUDIO = 41;
 
@@ -35,6 +35,7 @@ public final class CompanionActivity extends FragmentActivity {
     private int generation;
     private String queuedSpeech;
     private volatile String currentAssistantSpeech="";
+    private String interruptedAssistantSpeech="";
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -79,9 +80,9 @@ public final class CompanionActivity extends FragmentActivity {
                         if(!r.accepted){DiagnosticRecorder.get(CompanionActivity.this).event("barge_rejected","reason="+r.reason+";stt_ms="+sttMs+";text="+text);return;}
                         long cancelStarted=android.os.SystemClock.elapsedRealtime();
                         DiagnosticRecorder.get(CompanionActivity.this).event("barge_confirmed","reason="+r.reason+";stt_ms="+sttMs+";text="+text);
+                        interruptedAssistantSpeech=currentAssistantSpeech;
                         cancelCurrent(false);
-                        long cancelMs=android.os.SystemClock.elapsedRealtime()-cancelStarted;
-                        DiagnosticRecorder.get(CompanionActivity.this).event("tts_cancel_latency_ms",String.valueOf(cancelMs));
+                        DiagnosticRecorder.get(CompanionActivity.this).event("tts_cancel_latency_ms",String.valueOf(android.os.SystemClock.elapsedRealtime()-cancelStarted));
                         heard.setText("Вы: "+text);
                         handleTranscript(text);
                     });}
@@ -97,14 +98,14 @@ public final class CompanionActivity extends FragmentActivity {
         speaker=MartinSpeakerFactory.create(this,new MartinSpeaker.Listener(){
             @Override public void onPreparing(String message){runOnUiThread(()->detail.setText(message));}
             @Override public void onReady(){runOnUiThread(()->{voiceReady=true;detail.setText(active?"Говори естественно":"Голос готов");if(queuedSpeech!=null){String q=queuedSpeech;queuedSpeech=null;speakNow(q);}});}
-            @Override public void onStart(){runOnUiThread(()->{state.setText("Говорю…");orb.setState("talking");detail.setText("Можно перебить: «Сергей, погоди…»");});}
+            @Override public void onStart(){runOnUiThread(()->{state.setText("Говорю…");orb.setState("talking");detail.setText("Можно перебить: «IMA, погоди…» или «стоп»");});}
             @Override public void onLevel(float level){runOnUiThread(()->orb.setLevel(level));}
             @Override public void onSpectrum(float[] bands){runOnUiThread(()->orb.setSpectrum(bands));}
             @Override public void onDone(){runOnUiThread(()->{currentAssistantSpeech="";interruptBusy=false;orb.setLevel(0f);PartyMusic.get(CompanionActivity.this).duck(false);turns.onAiSpeechDone();});}
             @Override public void onError(String error){runOnUiThread(()->{currentAssistantSpeech="";interruptBusy=false;voiceReady=false;queuedSpeech=null;PartyMusic.get(CompanionActivity.this).duck(false);detail.setText(error);turns.forceListen();});}
         });
         speaker.prepare();
-        DiagnosticRecorder.get(this).event("companion_runtime","v1.1;director=local;party_director=false;barge_monitor=strict");
+        DiagnosticRecorder.get(this).event("companion_runtime","v1.2;brand=imagination;assistant=IMA;director=local;party_director=false;barge_monitor=strict");
     }
 
     private void handleTranscript(String text){
@@ -116,7 +117,11 @@ public final class CompanionActivity extends FragmentActivity {
         switch(d.kind){
             case IGNORE:state.setText("Слушаю…");detail.setText("Фоновая речь — не вмешиваюсь");turns.forceListen();return;
             case STOP:cancelCurrent(false);state.setText("Слушаю…");detail.setText("Прервано");return;
-            case VISION:requestAi("Пользователь просит визуальный контекст, но камера Companion Core пока не подключена. Ответь коротко и правдиво, что визуальное восприятие сейчас ещё не активно.");return;
+            case CONTINUE:
+                if(interruptedAssistantSpeech.isBlank()){requestAi("Продолжи последнюю тему с места, где остановился, без повторения начала.");}
+                else requestAi("Твой предыдущий ответ был прерван. Продолжи его кратко с места остановки. Исходный ответ: "+interruptedAssistantSpeech);
+                return;
+            case VISION:requestAi("Пользователь просит визуальный контекст, но камера imagination пока не подключена. Ответь коротко и правдиво, что визуальное восприятие сейчас ещё не активно.");return;
             case MUSIC:
                 String query=MusicRequestRouter.extract(text);
                 if(!query.isBlank()){turns.forceListen();MusicRequestRouter.play(this,query);detail.setText("Музыка: "+query);}else requestAi(d.text);return;
@@ -146,12 +151,12 @@ public final class CompanionActivity extends FragmentActivity {
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){pendingStart=true;requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_AUDIO);return;}
         String sttKey=getSharedPreferences("martin",0).getString("stt_key","");String aiKey=getSharedPreferences("martin",0).getString("ai_key","");
         if(!sttKey.startsWith("gsk_")&&!aiKey.startsWith("gsk_")){detail.setText("Добавь Groq key в настройках");return;}
-        generation++;active=true;conversation.reset();turns.forceListen();audio.start();mic.setText("● СЛУШАЮ");state.setText("Слушаю…");detail.setText("Скажи «Сергей…», затем можно продолжать без имени");orb.setState("listening");DiagnosticRecorder.get(this).event("companion_listening_start","generation="+generation);
+        generation++;active=true;conversation.reset();turns.forceListen();audio.start();mic.setText("● СЛУШАЮ");state.setText("Слушаю…");detail.setText("Скажи «IMA…», затем можно продолжать без имени");orb.setState("listening");DiagnosticRecorder.get(this).event("companion_listening_start","generation="+generation);
     }
 
     private void stopListening(){active=false;cancelCurrent(true);if(audio!=null)audio.stop();state.setText("Готов");detail.setText("Нажми «Начать»");mic.setText("🎙  НАЧАТЬ");orb.setLevel(0f);orb.setState("idle");}
 
-    private void cancelCurrent(boolean resetConversation){generation++;queuedSpeech=null;currentAssistantSpeech="";interruptBusy=false;if(ai!=null)ai.cancel();if(stt!=null)stt.cancel();if(speaker!=null)speaker.stop();turns.forceListen();PartyMusic.get(this).duck(false);if(resetConversation)conversation.reset();DiagnosticRecorder.get(this).event("companion_cancel","reset="+resetConversation+";generation="+generation);}
+    private void cancelCurrent(boolean resetConversation){generation++;queuedSpeech=null;currentAssistantSpeech="";interruptBusy=false;if(ai!=null)ai.cancel();if(stt!=null)stt.cancel();if(speaker!=null)speaker.stop();turns.forceListen();PartyMusic.get(this).duck(false);if(resetConversation){conversation.reset();interruptedAssistantSpeech="";}DiagnosticRecorder.get(this).event("companion_cancel","reset="+resetConversation+";generation="+generation);}
 
     private void onTurnState(TurnManager.State s){DiagnosticRecorder.get(this).event("companion_turn",s.name());switch(s){case LISTENING:orb.setState(active?"listening":"idle");if(active)state.setText("Слушаю…");break;case THINKING:orb.setState("thinking");state.setText("Думаю…");break;case SPEAKING:orb.setState("talking");state.setText("Говорю…");break;case COOLDOWN:orb.setState("listening");break;}}
 
@@ -161,8 +166,8 @@ public final class CompanionActivity extends FragmentActivity {
 
     private void buildUi(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setGravity(Gravity.CENTER_HORIZONTAL);root.setPadding(dp(16),dp(12),dp(16),dp(16));root.setBackground(gradient(0xFF05060B,0xFF0D0820,0xFF05060B,0));
-        TextView title=text("СЕРГЕЙ",30,Color.WHITE,Typeface.BOLD);title.setLetterSpacing(.08f);title.setGravity(Gravity.CENTER);root.addView(title);
-        TextView tag=text("PERSONAL AI • COMPANION CORE",10,0xFFAD91FF,Typeface.BOLD);tag.setLetterSpacing(.08f);tag.setGravity(Gravity.CENTER);root.addView(tag);
+        TextView title=text("IMA",30,Color.WHITE,Typeface.BOLD);title.setLetterSpacing(.08f);title.setGravity(Gravity.CENTER);root.addView(title);
+        TextView tag=text("imagination • PERSONAL AI",10,0xFFAD91FF,Typeface.BOLD);tag.setLetterSpacing(.08f);tag.setGravity(Gravity.CENTER);root.addView(tag);
         FrameLayout hero=new FrameLayout(this);hero.setBackground(gradient(0xFF070812,0xFF130D28,0xFF070811,30));orb=new VoiceOrbView(this);hero.addView(orb,new FrameLayout.LayoutParams(-1,-1));LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,0,1);hp.setMargins(0,dp(14),0,dp(12));root.addView(hero,hp);
         state=text("Готов",21,Color.WHITE,Typeface.BOLD);state.setGravity(Gravity.CENTER);root.addView(state);
         detail=text("Нажми «Начать»",12,0xFF9D98AA,Typeface.NORMAL);detail.setGravity(Gravity.CENTER);root.addView(detail);
