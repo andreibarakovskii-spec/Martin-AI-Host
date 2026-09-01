@@ -15,13 +15,14 @@ public final class BargeInPolicy {
     public Result evaluate(String transcript, String currentAssistantSpeech) {
         String n = norm(transcript);
         if (n.isBlank()) return new Result(false,"blank");
-        if (looksLikeEcho(n, norm(currentAssistantSpeech))) return new Result(false,"similar_to_tts");
 
-        boolean name = hasWord(n,"сергей") || hasWord(n,"мартин") || hasWord(n,"ассистент");
         boolean stop = n.matches(".*\\b(стоп|погоди|подожди|стой|замолчи|хватит|перебью)\\b.*");
-        boolean repair = n.matches(".*\\b(нет не так|я про другое|я имел в виду|я имела в виду)\\b.*");
+        boolean repair = n.matches(".*\\b(нет не так|я про другое|я имел в виду|я имела в виду|не речь а|мне нужна|мне нужен)\\b.*");
+        boolean name = hasWord(n,"има") || hasWord(n,"ima") || hasWord(n,"ассистент");
 
+        // Strong local-control words win before echo comparison: a short "стоп" may also occur in TTS.
         if (stop) return new Result(true,"stop_word");
+        if (looksLikeEcho(n, norm(currentAssistantSpeech))) return new Result(false,"similar_to_tts");
         if (name && tokenCount(n)>=2) return new Result(true,"assistant_name_plus_speech");
         if (repair) return new Result(true,"repair_phrase");
         return new Result(false,"not_explicit_enough");
