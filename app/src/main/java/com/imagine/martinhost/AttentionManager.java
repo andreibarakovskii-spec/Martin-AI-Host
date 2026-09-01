@@ -2,18 +2,13 @@ package com.imagine.martinhost;
 
 import java.util.Locale;
 
-/**
- * Small deterministic attention gate for Companion Core v1.
- * It intentionally stays conservative: direct address and clear questions/actions pass,
- * obvious ambient fragments can be ignored. Later this can be replaced/augmented by a model.
- */
+/** Conservative deterministic attention gate for imagination / IMA. */
 public final class AttentionManager {
     public enum Attention { DIRECT, LIKELY, AMBIENT }
 
     public Attention classify(String text, boolean conversationActive) {
         String s = normalize(text);
         if (s.isBlank()) return Attention.AMBIENT;
-
         if (mentionsAssistant(s)) return Attention.DIRECT;
         if (looksLikeStopOrRepair(s)) return Attention.DIRECT;
         if (conversationActive && looksLikeContinuation(s)) return Attention.LIKELY;
@@ -23,11 +18,11 @@ public final class AttentionManager {
     }
 
     static boolean mentionsAssistant(String s) {
-        return containsWord(s, "сергей") || containsWord(s, "мартин") || containsWord(s, "ассистент");
+        return containsWord(s, "има") || containsWord(s, "ima") || containsWord(s, "ассистент");
     }
 
     static boolean looksLikeStopOrRepair(String s) {
-        return s.matches(".*\\b(стоп|подожди|погоди|стой|нет|не так|я имел в виду|я имела в виду|перебью)\\b.*");
+        return s.matches(".*\\b(стоп|подожди|погоди|стой|нет|не так|я имел в виду|я имела в виду|я про другое|перебью|продолжи|продолжай|договори)\\b.*");
     }
 
     static boolean looksLikeQuestion(String s) {
@@ -35,7 +30,7 @@ public final class AttentionManager {
     }
 
     static boolean looksLikeActionRequest(String s) {
-        return s.matches("^(напомни|запомни|добавь|запиши|найди|проверь|покажи|включи|выключи|поставь|создай|открой|расскажи|скажи|позвони|напиши)\\b.*");
+        return s.matches("^(напомни|запомни|добавь|запиши|найди|проверь|покажи|включи|выключи|поставь|создай|открой|расскажи|скажи|позвони|напиши|продолжи|продолжай)\\b.*");
     }
 
     static boolean looksLikeContinuation(String s) {
