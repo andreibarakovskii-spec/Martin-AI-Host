@@ -2,337 +2,277 @@
 
 Updated: 2026-09-01
 
-This file is the operational handoff between ChatGPT conversations. Update it after every meaningful code batch, test result, architecture change or newly discovered blocker. Read it together with `docs/COMPANION_VISION.md` before continuing development.
+This is the operational handoff between ChatGPT conversations. Always read this file together with `docs/COMPANION_VISION.md` before continuing, and update it after every meaningful implementation/test batch.
 
 ## Current product direction
 
-The party-host phase is finished. The product is now a persistent personal AI companion for an Android tablet + external/Bluetooth speaker.
+The party-host phase is retired as the main product. We are building a persistent personal AI companion for an Android tablet + Bluetooth/external speaker. The priorities are natural dialogue, interruption, durable memory, adaptation, tools and later an avatar.
 
-Primary objective: make conversation, interruption handling, long-term memory and adaptation feel substantially more natural than a command-oriented smart speaker before investing heavily in a 3D avatar.
-
-## Branches / recoverable baseline
+## Repository / branches
 
 Repository: `andreibarakovskii-spec/Martin-AI-Host`
 
-Active companion branch:
-- `companion-core-v1`
+Active branch: `companion-core-v1`
 
-Preserved party-era branches/baselines:
+Recovery branches:
 - `voice-orb-v1`
-- `companion-core-v1-baseline` created from party-era green commit `ec2f3dff13535788325c7b49fb9d0c54873ceb81`
+- `companion-core-v1-baseline` from party-era green commit `ec2f3dff13535788325c7b49fb9d0c54873ceb81`
 
-Last party-era tested version:
-- `0.10.5`
-- GitHub Actions run #230 green
+Party-era reference:
+- 0.10.5
+- run #230 green
 
-Current companion version:
-- `0.11.0-companion-core-v1`
-- versionCode 110
-- app label: `Сергей AI Companion`
+## Current version — 0.11.1
 
-Current Companion Core HEAD used for first CI:
-- `a29f3f92001c294dd881256bfd7b9e5d8c4be905`
+Version:
+- versionCode 111
+- versionName `0.11.1-companion-barge-in`
+- app label `Сергей AI Companion`
 
-## Companion Core v1 — implemented 2026-09-01
+Current tested HEAD:
+- `b3737851236cc30bd44c14169427afe2a1e0117d`
 
-### New launcher/runtime
+GitHub Actions:
+- workflow `Build Companion Core APK`
+- run #240
+- run id `33508686512`
+- job id `99858815271`
+- result: COMPLETED / SUCCESS
+- unit tests: success
+- APK integrity check: success
+- Android 35 CompanionActivity launch: success
+- native FastVoiceSmokeTest: success
 
-Created `CompanionActivity.java` and made it the launcher activity.
+Artifact:
+- `Sergey-AI-Companion-0.11.1-APK`
+- artifact id `9800759326`
+- archive digest `sha256:f5acca95134a91ee7beed9153666bf6d668abef4bb4388f9a81e41a436953b98`
 
-Important architectural change:
-- normal conversation no longer runs through `PartyDirector`;
-- old `PremiumMainActivity` remains in the APK as non-exported legacy/party code for recovery/reference;
-- primary runtime path is now:
-  `ContinuousSpeechEngine -> GroqTranscriber -> ConversationDirector -> GrokClient -> MartinSpeaker`.
+Extracted APK:
+- `sergey-ai-companion-0.11.1.apk`
+- size `238614765` bytes
+- SHA-256 `bca514ca489f6ef2699002b7d265dcd56df11fd60c12044361c9165ba3418373`
 
-The new screen keeps the lightweight Voice Orb and provides Settings + Diagnostics access.
+IMPORTANT: CI/emulator proves the code builds and launches. Barge-in over a real Bluetooth speaker is NOT confirmed until a real-device diagnostic test is completed.
+
+## Companion Core architecture already implemented
+
+Primary launcher/runtime is `CompanionActivity`, not `PremiumMainActivity`.
+
+Normal dialogue path:
+`ContinuousSpeechEngine -> GroqTranscriber -> ConversationDirector -> GrokClient -> MartinSpeaker`
+
+`PartyDirector` is not used in the normal companion conversation path. Legacy party code stays non-exported for recovery/reference.
 
 ### ConversationDirector
 
-Added `ConversationDirector.java`.
+Decisions:
+- IGNORE
+- RESPOND
+- STOP
+- MUSIC
+- VISION
 
-Initial deterministic decisions:
-- `IGNORE`
-- `RESPOND`
-- `STOP`
-- `MUSIC`
-- `VISION`
-
-It keeps a short continuation window, allowing conversation to continue without repeating the assistant name after an explicit address.
-
-Examples covered by tests:
-- `Сергей, что мы сегодня делаем?` -> RESPOND and strips assistant name;
-- ambient statement before a conversation -> IGNORE;
-- follow-up without wake word inside continuation window -> RESPOND;
-- stale unrelated statement after continuation window -> IGNORE;
-- `Сергей, погоди` -> STOP;
-- music request -> MUSIC;
-- visual request -> VISION.
+Supports a short continuation window so after an explicit `Сергей...` the user can continue naturally without repeating the name.
 
 ### AttentionManager
 
-Added `AttentionManager.java`.
+Attention classes:
+- DIRECT
+- LIKELY
+- AMBIENT
 
-Initial attention classes:
-- `DIRECT`
-- `LIKELY`
-- `AMBIENT`
+Current v1 policy uses direct name, questions/actions, recent conversation continuation, repair/interrupt phrases and obvious ambient fragments. It is intentionally conservative and still needs real-world tuning.
 
-Current deterministic signals include:
-- direct assistant-name mention;
-- repair/interrupt phrases;
-- questions;
-- clear action verbs;
-- recent active conversation continuation;
-- obvious ambient/noise fragments.
+### CompanionPrompt
 
-This is intentionally conservative and will later be augmented by a semantic/model-based classifier.
+`GrokClient` now uses `CompanionPrompt.system(context)` rather than the birthday/tamada prompt.
 
-### Companion identity/prompt
-
-Added `CompanionPrompt.java` and switched `GrokClient.system()` to it.
-
-Removed the birthday/tamada system identity from the main LLM prompt.
-
-Current base personality:
-- calm;
-- intelligent;
-- warm;
+Base behavior:
+- calm/intelligent/warm;
+- concise natural Russian;
 - rare dry humor;
-- concise natural Russian speech;
-- no automatic games/party behavior;
+- no automatic party behavior;
 - no fake tool execution claims;
-- no invented memories/identities/camera facts;
-- explicit truth that long-term memory is not implemented yet.
+- no invented memories/people/camera facts;
+- truthful that long-term memory is not built yet.
 
-`GrokClient` still uses its short in-memory dialogue history. This is temporary working context, not Memory Engine v1.
+### Diagnostics
 
-### Diagnostics added
-
-Companion runtime emits new events including:
+Companion events include:
 - `companion_runtime`
 - `companion_listening_start`
-- `companion_stt_start`
-- `companion_stt_done`
-- `companion_stt_error`
+- `companion_stt_start/done/error`
 - `companion_decision`
 - `companion_ignored`
-- `companion_ai_start`
-- `companion_ai_done`
-- `companion_ai_error`
+- `companion_ai_start/done/error`
 - `companion_turn`
 - `companion_cancel`
 
-This gives a first baseline for STT/model latency and routing behavior on the real device.
+## 0.11.1 — strict barge-in prototype
 
-## CI status
+Implemented Priority 1A as a conservative two-stage interrupt path rather than opening full STT over TTS.
 
-GitHub Actions workflow renamed/configured for the companion branch:
-- workflow: `Build Companion Core APK`
-- run: #233
-- run id: `33507743984`
-- job id: `99855750508`
-- head: `a29f3f92001c294dd881256bfd7b9e5d8c4be905`
-- result: COMPLETED / SUCCESS
+### BargeInPolicy
 
-Green steps include:
-- unit tests and build;
-- APK integrity check;
-- artifact upload;
-- Android 35 emulator launch;
-- native `FastVoiceSmokeTest`.
+New `BargeInPolicy.java` validates short STT candidates heard while the assistant is speaking.
 
-The emulator explicitly launches:
-`com.imagine.martinhost.diagnostics/com.imagine.martinhost.CompanionActivity`
+Accepts strong signals such as:
+- `стоп`
+- `погоди`
+- `подожди`
+- `стой`
+- `замолчи`
+- `хватит`
+- assistant name + additional speech, e.g. `Сергей, я про другое`
+- explicit repair phrases
 
-Artifact:
-- name: `Sergey-AI-Companion-0.11.0-APK`
-- artifact id: `9800384758`
-- artifact archive digest: `sha256:bfae0a7e0370c406ef8b259ff65b8ab3ee1637dd8a287ab8766a86716b22a666`
+Rejects:
+- weak ambient words;
+- assistant name alone;
+- candidate text with >=80% token overlap with current TTS (likely echo/self-speech).
 
-Extracted APK from artifact:
-- file: `sergey-ai-companion-0.11.0.apk`
-- size: `238614769` bytes
-- SHA-256: `6746008bac44e29dd0611a6120666dd2d6c42d4525ffc56287e282859d305265`
+Unit tests cover explicit stop, assistant-name interruption, ambient rejection, TTS echo rejection and name-alone rejection.
 
-## What is confirmed working now
+### ContinuousSpeechEngine interrupt monitor
 
-Confirmed by CI/emulator:
-- new Companion launcher exists and starts;
-- new classes compile;
-- routing unit tests pass;
+The existing normal STT gate remains closed during `SPEAKING`, but a separate strict audio candidate monitor stays active.
+
+Current interrupt capture settings:
+- 180 ms pre-roll
+- min speech 240 ms
+- end silence 260 ms
+- max candidate 2400 ms
+- cooldown 1200 ms
+- stricter level threshold approximately `max(-28 dB, noise floor + 18 dB)`
+- existing VOICE_COMMUNICATION input + hardware AEC/NoiseSuppressor where Android/device supports them
+
+It emits:
+- `barge_candidate`
+- `barge_audio_ready`
+
+### CompanionActivity barge-in flow
+
+While TTS is speaking:
+1. strict monitor captures a short candidate;
+2. candidate is transcribed;
+3. `BargeInPolicy` compares it against current assistant speech;
+4. rejected candidate logs `barge_rejected` and TTS continues;
+5. accepted candidate logs `barge_confirmed`;
+6. current AI/STT/TTS is cancelled;
+7. cancellation time logs `tts_cancel_latency_ms`;
+8. recognized user phrase returns to the ordinary ConversationDirector path.
+
+Runtime diagnostic marker:
+`companion_runtime: v1.1;director=local;party_director=false;barge_monitor=strict`
+
+## What is confirmed
+
+By CI/emulator:
+- CompanionActivity is the launcher and starts;
+- routing and barge-in unit tests pass;
 - APK installs;
-- existing native voice dependency smoke test still passes;
-- party activity is no longer launcher;
-- Companion Prompt is used by GrokClient.
+- voice/native dependency smoke test passes;
+- strict interrupt code compiles with legacy activities;
+- party activity is not the default runtime.
 
-NOT yet confirmed on a real tablet/phone for 0.11.0:
-- quality of real conversational attention gating;
-- Bluetooth speaker behavior;
-- real STT latency;
-- real TTS latency;
-- music routing from new CompanionActivity;
-- handling of noisy-room ambient speech.
+Not yet confirmed on real device:
+- Bluetooth echo rejection;
+- whether real user speech reliably crosses the strict interrupt threshold;
+- actual interruption latency including remote STT;
+- whether speaker/TTS ever falsely triggers `barge_candidate`/`barge_confirmed`;
+- long continuous dialogue quality;
+- music route in companion mode.
 
-## Important current limitations
+## Current major limitations
 
-### 1. No true barge-in yet
+1. Long-term Memory Engine is not implemented. `GrokClient` only has short volatile history.
+2. AttentionManager remains heuristic v1.
+3. Barge-in currently uses remote STT for short candidates, so perceived interrupt latency may still be too high; later we should add a local wake/keyword/interrupt recognizer if logs justify it.
+4. Vision intent is recognized, but new CompanionActivity intentionally does not yet use the legacy camera/person stack.
+5. Internal names such as `MartinSpeaker`, `PartyAudioRouter`, `PartyMusic` remain technical debt; do not mass-rename while audio is stabilizing.
+6. Direct Yandex Music relies on reverse-engineered behavior and needs companion-mode real-device verification.
+7. Yandex OAuth token storage must later move to Android Keystore/encrypted storage.
+8. Future agent actions need an explicit permission/risk layer.
 
-The existing `TurnManager.acceptMicForStt()` only returns true in `LISTENING`.
-During `SPEAKING/COOLDOWN`, normal STT is still gated off.
+## IMMEDIATE REAL-DEVICE TEST — 0.11.1
 
-Therefore 0.11.0 does NOT yet meet the final requirement that the user can naturally interrupt the assistant while it speaks.
+Install 0.11.1 on the target Android device and connect the intended Bluetooth speaker.
 
-### 2. No long-term Memory Engine yet
+Test sequence:
+1. Start voice mode.
+2. Say: `Сергей, расскажи подробно, что такое эпизодическая память.`
+3. While he is speaking say: `Сергей, погоди, я про другое.`
+4. Verify whether speech stops and the new phrase is processed.
+5. Start another longer response and say only `стоп` while he speaks.
+6. Let the speaker play normally without talking and verify it does NOT interrupt itself.
+7. Have another person say unrelated room speech while he speaks and see whether it is rejected.
+8. Export/send the diagnostic ZIP.
 
-`GrokClient` only keeps a small volatile dialogue history.
-There is no durable semantic/episodic/preference/relationship/goal memory yet.
+In the log inspect:
+- `barge_candidate`
+- `barge_audio_ready`
+- `barge_stt_start`
+- `barge_confirmed`
+- `barge_rejected`
+- `tts_cancel_latency_ms`
+- `mic_health` with `interrupt_monitor=true`
 
-Do not claim that 0.11.0 remembers the user across days.
+Do not claim barge-in is finished until this real-device test passes.
 
-### 3. Attention is heuristic v1
+## NEXT — Priority 1B after barge-in log
 
-`AttentionManager` is a deterministic first layer. It can still misclassify natural speech, rhetorical questions and ambient conversations.
-
-Real-device logs are required before making it more aggressive.
-
-### 4. Vision in CompanionActivity is intentionally not connected yet
-
-VISION intent is recognized, but the new Companion runtime currently answers truthfully that visual context is not active. The old camera subsystem remains in legacy code and will be integrated later through `PersonContext`/Context Engine rather than copied blindly.
-
-### 5. Existing infrastructure still has party-era names
-
-Examples:
-- package `com.imagine.martinhost`
-- `MartinSpeaker`
-- `PartyAudioRouter`
-- `PartyMusic`
-
-These names are technical debt. Do not rename everything at once while stabilizing audio.
-
-### 6. Music integration is legacy-backed
-
-CompanionActivity can still route through `MusicRequestRouter`, but direct Yandex playback depends on reverse-engineered behavior and needs another real-device verification in companion mode.
-
-### 7. Security/privacy debt
-
-- Yandex OAuth token storage should move to Android Keystore/encrypted storage.
-- No formal memory export/delete model exists yet because Memory Engine is not built.
-- Future tool permissions need an explicit policy layer.
-
-## NEXT — Priority 1A: true interruption / barge-in
-
-Do this before long-term memory because conversation quality depends on it.
-
-Target design:
-1. Separate `capture microphone` from `full STT allowed`.
-2. Keep lightweight interrupt detection active during TTS.
-3. During assistant speech detect only strong interruption signals first:
-   - assistant name + speech;
-   - `стоп`;
-   - `погоди`;
-   - `подожди`;
-   - `стой`;
-   - deliberate sustained user speech above a stricter threshold.
-4. Immediately cancel AI/TTS on validated interruption.
-5. Keep pre-roll so the user's continuation is not clipped.
-6. Return the captured utterance to normal STT after cancelling assistant speech.
-7. Protect strongly against Bluetooth speaker/self-TTS triggering the interruption detector.
-8. Add diagnostics:
-   - `barge_candidate`
-   - `barge_confirmed`
-   - `barge_rejected`
-   - `tts_cancel_latency_ms`
-   - preserved pre-roll duration.
-9. Add deterministic unit tests plus emulator build.
-10. Verify on real device with speaker.
-
-## NEXT — Priority 1B: improve conversation runtime after barge-in
-
-- semantic attention classifier for ambiguous cases;
-- better conversational-session expiry;
-- discourse repair (`нет, я про другое`, corrections, partial phrases);
-- streaming model response when provider supports it;
-- streaming/earlier TTS start;
-- measured time from end-of-user-speech to first assistant audio;
-- stop relying on broad STT hallucination blacklists as the main echo solution.
+Tune thresholds/echo rejection from the real log, then improve:
+- semantic attention classifier for ambiguous speech;
+- conversation-session expiry;
+- discourse repair/corrections;
+- streaming LLM response where provider supports it;
+- earlier/streaming TTS;
+- end-of-user-speech -> first-assistant-audio latency metric;
+- local fast interruption detection if remote STT is too slow.
 
 ## NEXT — Priority 2: Memory Engine v1
 
-Implement memory types:
-- working;
-- episodic;
-- semantic;
-- preference;
-- relationship;
-- goal.
+After barge-in is stable enough, implement durable structured memory:
+- working
+- episodic
+- semantic
+- preference
+- relationship
+- goal
 
-Required pipeline:
-`conversation/event -> candidate extraction -> importance score -> type -> dedup/conflict -> temporal metadata -> persistence`
+Pipeline:
+`conversation/event -> candidate extraction -> importance -> type -> dedup/conflict -> temporal metadata -> encrypted persistence`
 
-Retrieval target:
-`current context -> keyword + semantic + temporal retrieval -> rerank -> small relevant memory bundle`
+Retrieval:
+`current context -> keyword + semantic + temporal retrieval -> rerank -> compact relevant memory context`
 
-Memory record requirements:
-- id;
-- type;
-- content;
-- created_at;
-- valid_from / valid_to where relevant;
-- confidence;
-- importance;
-- source;
-- entity/person links;
-- last_used;
-- supersedes/conflicts-with;
-- user-confirmed flag.
+Records need id/type/content/timestamps/validity/confidence/importance/source/entity links/last_used/supersedes/conflicts/user-confirmed.
 
 Also required:
-- encrypted local persistence;
+- encrypted local store;
 - memory viewer;
-- edit/delete;
-- clear-all/export path;
-- simulated multi-day tests.
+- edit/delete/clear/export;
+- simulated multi-day tests;
+- never save every transcript line by default.
 
-## NEXT — Priority 3: Soul Engine
+## Later plan
 
-After Memory Engine basics:
-- stable base identity;
-- bounded warmth/humor/verbosity/formality/initiative/directness parameters;
-- slow adaptation;
-- per-user relationship state;
-- audit why a personality parameter changed;
-- reset/edit controls.
+3. Soul Engine: bounded adaptive warmth/humor/verbosity/formality/initiative/directness + per-user relationship state.
+4. Context + controlled proactivity: `ShouldSpeakPolicy`, budgets/cooldowns, goals/time/calendar/presence.
+5. Skill/tool registry + permissions: reminders, calendar, notes, web, weather, music, messaging, smart home.
+6. PersonContext with confidence-based face/voice/appearance/recent-presence fusion.
+7. Avatar v1, then avatar creator/3D.
+8. Optional encrypted sync/family profiles.
+9. Commercial onboarding/subscriptions/skill ecosystem.
 
-## NEXT — Priority 4: Context + controlled proactivity
+## Mandatory continuation rule
 
-- Context Engine;
-- `ShouldSpeakPolicy` separate from generation;
-- time/calendar/goals/device/presence context;
-- proactivity budget + cooldown;
-- user-selectable proactivity level;
-- unfinished-goal callbacks without nagging.
-
-## Later priorities
-
-5. Skill/tool registry and permission layer: reminders, calendar, notes, research, weather, music, messaging, smart home.
-6. PersonContext: confidence-based face/voice/appearance/recent-presence fusion.
-7. Avatar v1: expressive lightweight presence.
-8. Avatar creator / 3D character.
-9. Optional encrypted sync + family profiles.
-10. Commercial onboarding/subscriptions/skill ecosystem.
-
-## Mandatory workflow rule for future ChatGPT sessions
-
-Before continuing development:
-1. Read `docs/COMPANION_VISION.md`.
-2. Read this file.
-3. Inspect current `companion-core-v1` HEAD and latest CI.
-4. Continue from the NEXT priorities rather than reconstructing the project from chat history.
-5. After meaningful work, update this file with actual commits/run IDs/test results/limitations.
-6. Update `COMPANION_VISION.md` only when product architecture materially changes.
-7. Never mark a feature as done unless code/tests or real-device evidence supports it.
-
-## Immediate next action
-
-Implement **Priority 1A — true barge-in** on top of the green 0.11.0 Companion Core baseline, then issue a new test APK and collect a real-device diagnostic log before beginning Memory Engine v1.
+Every new ChatGPT session must:
+1. read `docs/COMPANION_VISION.md`;
+2. read this file;
+3. inspect current `companion-core-v1` HEAD and latest CI;
+4. continue from the NEXT section;
+5. update this file after meaningful changes/tests;
+6. update Vision only if architecture/product direction materially changes;
+7. never mark a feature done without code/tests or real-device evidence.
