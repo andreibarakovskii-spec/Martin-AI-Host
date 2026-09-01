@@ -35,12 +35,12 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "com.imagine.martinhost.diagnostics" else "com.imagine.martinhost.fixed"
-        manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Сергей — тест диалога" else "Сергей AI Ведущий"
+        manifestPlaceholders["appLabel"] = if (providers.gradleProperty("diagnosticCopy").orNull == "true") "Сергей Companion — тест" else "Сергей AI Companion"
         minSdk = 31
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 105
-        versionName = "0.10.5-sergey-natural-games"
+        versionCode = 110
+        versionName = "0.11.0-companion-core-v1"
     }
     System.getenv("MARTIN_DEBUG_KEYSTORE")?.let { keyPath ->
         signingConfigs.getByName("debug") { storeFile = file(keyPath) }
