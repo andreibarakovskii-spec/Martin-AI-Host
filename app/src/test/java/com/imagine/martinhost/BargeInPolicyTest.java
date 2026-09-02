@@ -14,6 +14,8 @@ public class BargeInPolicyTest {
         BargeInPolicy.Result r=p.evaluate("Я живу в Дзержинске", "Сейчас расскажу про эпизодическую память");
         assertTrue(r.accepted);assertEquals("meaningful_human_speech",r.reason);
     }
+    @Test public void directedContinuationInterrupts(){assertTrue(p.evaluate("Продолжай говорить про память", "Сейчас расскажу про другое").accepted);}
+    @Test public void unrelatedRoomSentenceDoesNotInterrupt(){assertFalse(p.evaluate("На улице проехала красная машина", "Продолжаю ответ").accepted);}
     @Test public void weakAmbientWordDoesNotInterrupt(){assertFalse(p.evaluate("ага", "Продолжаю ответ").accepted);}
     @Test public void likelyTtsEchoIsRejected(){
         BargeInPolicy.Result r=p.evaluate("Ситуация развивается довольно быстро", "Ситуация развивается довольно быстро, поэтому продолжим");
