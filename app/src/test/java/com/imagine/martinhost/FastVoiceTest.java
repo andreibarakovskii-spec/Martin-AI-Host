@@ -8,6 +8,14 @@ public class FastVoiceTest {
   assertEquals(Integer.valueOf(1),callback.invoke(new float[0]));cancelled.set(true);
   assertEquals(Integer.valueOf(0),callback.invoke(new float[0]));
  }
+ @Test public void streamingPcmConversionClampsAndKeepsLittleEndian(){
+  byte[] pcm=FastVoiceEngine.toPcm16(new float[]{-2f,-1f,0f,1f,2f});
+  assertEquals(10,pcm.length);
+  assertEquals((byte)0x01,pcm[0]);assertEquals((byte)0x80,pcm[1]);
+  assertEquals((byte)0x00,pcm[4]);assertEquals((byte)0x00,pcm[5]);
+  assertEquals((byte)0xFF,pcm[6]);assertEquals((byte)0x7F,pcm[7]);
+  assertEquals(pcm[6],pcm[8]);assertEquals(pcm[7],pcm[9]);
+ }
  @Test public void russianLettersReachModelInReferenceNormalization(){
   assertEquals("Андреи\u0306, е\u0308лка и и\u0306огурт.",FastVoiceEngine.normalizeText("Андрей, ёлка и йогурт."));
   String text=FastVoiceEngine.normalizeText("С днём рождения! Йога, ёж.");
