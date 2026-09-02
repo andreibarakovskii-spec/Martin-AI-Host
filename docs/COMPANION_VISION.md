@@ -28,6 +28,41 @@ The main differentiation must not be a prettier UI or a larger list of voice com
 12. Assistant identity is user-configurable: name, wake name, voice and later avatar/personality can be changed without rebuilding the app.
 13. Voice cloning/personal voice must be consent- and rights-aware, clearly disclosed, revocable, and never presented as proof that a real deceased or absent person is literally present.
 
+## Human-like conversation behavior model
+
+The companion should behave like an attentive participant in a room conversation, not like a wake-word command parser.
+
+For every audible segment the runtime should build a confidence-based hypothesis over:
+- speech vs non-speech/background noise;
+- assistant self-speech/echo vs external speech;
+- addressed-to-IMA vs conversation-between-people vs unrelated ambient media/noise;
+- current speaker identity/hypothesis when available;
+- relation to the current topic;
+- continuation, correction, interruption, topic shift or new topic;
+- whether IMA should answer, only remember the utterance temporarily, or ignore it.
+
+Required behavior:
+1. Suppress irrelevant acoustic background before STT where possible and reject non-conversational/low-confidence segments after STT.
+2. Keep a short-lived working-memory transcript for the active room conversation, separate from durable memory.
+3. A relevant utterance from another person can enter working memory even when it is not addressed to IMA.
+4. IMA does not need to speak after every relevant utterance; it may simply listen and use it later.
+5. If the group naturally changes topic, working memory should switch active-topic state instead of dragging the previous subject back.
+6. If a new participant appears, the context should gain a new speaker hypothesis and IMA should adapt to the group conversation without pretending to know the person's identity.
+7. Identity must be confidence-based and may combine voice, face, clothing/body continuity and explicit self-identification; low confidence means ask rather than invent.
+8. The final response model receives only a compact relevant context bundle, not an unbounded raw room transcript.
+
+The conversation state should therefore contain at least:
+- active topic + topic history/revision;
+- recent relevant utterances;
+- speaker hypotheses and confidence;
+- who IMA believes is being addressed;
+- unresolved references/corrections;
+- current social mode (one-to-one, group discussion, command/task, idle room);
+- last interruption / unfinished assistant response;
+- temporary facts mentioned in this conversation.
+
+This working state should decay over minutes and should not automatically become long-term memory.
+
 ## Target experience
 
 A tablet can stay in a room as the assistant's physical presence. Audio is routed to a Bluetooth speaker. The assistant can wake by name, listen continuously when appropriate, identify the current user with confidence estimates, remember prior conversations, follow unfinished goals, and execute useful actions.
