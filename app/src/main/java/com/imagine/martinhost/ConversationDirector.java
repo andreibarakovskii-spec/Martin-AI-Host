@@ -1,6 +1,6 @@
 package com.imagine.martinhost;
 
-/** Deterministic routing layer for imagination / IMA. */
+/** Deterministic routing layer plus short-lived conversational state for imagination / IMA. */
 public final class ConversationDirector {
     public enum Kind { IGNORE, RESPOND, STOP, CONTINUE, MUSIC, VISION }
 
@@ -19,6 +19,7 @@ public final class ConversationDirector {
     }
 
     private final AttentionManager attention = new AttentionManager();
+    private final ConversationWorkingMemory workingMemory = new ConversationWorkingMemory();
     private boolean conversationActive;
     private long lastDirectedAtMs;
     private long continuationWindowMs = 45_000L;
@@ -30,7 +31,11 @@ public final class ConversationDirector {
     public void reset() {
         conversationActive = false;
         lastDirectedAtMs = 0L;
+        workingMemory.reset();
     }
+
+    public String currentTopic(){return workingMemory.activeTopic();}
+    public int topicRevision(){return workingMemory.topicRevision();}
 
     public Decision decide(String transcript, long nowMs) {
         String raw = transcript == null ? "" : transcript.trim();
@@ -39,6 +44,11 @@ public final class ConversationDirector {
         AttentionManager.Attention a = attention.classify(raw, inWindow);
 
         if (raw.isBlank()) return new Decision(Kind.IGNORE, "", "blank", a);
+
+        // Observe every nonblank transcript before routing. Unrelated room speech is marked AMBIENT;
+        // semantically related speech can become short-lived dialogue context without forcing IMA to speak.
+        workingMemory.observe(raw,a,nowMs);
+
         if (isStop(n)) {
             lastDirectedAtMs = nowMs;
             return new Decision(Kind.STOP, "", "stop_or_interrupt", AttentionManager.Attention.DIRECT);
@@ -56,7 +66,8 @@ public final class ConversationDirector {
             return new Decision(Kind.MUSIC, raw, "music_request", a);
         }
         if (a == AttentionManager.Attention.AMBIENT) {
-            return new Decision(Kind.IGNORE, "", "ambient_or_not_addressed", a);
+            String reason=workingMemory.shouldKeepAmbientInDialogue(raw)?"ambient_kept_as_dialog_context":"ambient_or_not_addressed";
+            return new Decision(Kind.IGNORE, "", reason, a);
         }
 
         String q = stripAssistantName(raw);
@@ -64,6 +75,8 @@ public final class ConversationDirector {
         if (looksLikeRepair(n)) {
             q = "Исправление пользователя к предыдущей реплике: " + q + ". Прими исправление и продолжи исходную тему без повторения ошибки.";
         }
+        String live=workingMemory.promptContext(nowMs);
+        if(!live.isBlank())q=q+live;
         markActive(nowMs);
         return new Decision(Kind.RESPOND, q, looksLikeRepair(n) ? "repair" : (a == AttentionManager.Attention.DIRECT ? "direct" : "continuation"), a);
     }
