@@ -25,10 +25,9 @@ public final class BargeInPolicy {
         if (name && tokenCount(n)>=2) return new Result(true,"assistant_name_plus_speech");
         if (repair) return new Result(true,"repair_phrase");
 
-        // Once the acoustic monitor has already isolated a non-echo speech candidate,
-        // a meaningful multiword phrase is treated as intentional conversational barge-in.
-        // Tiny acknowledgements remain rejected to avoid room-noise interruptions.
-        if (tokenCount(n)>=3 && n.length()>=10 && !weakAmbient(n)) return new Result(true,"meaningful_human_speech");
+        // Natural speech may interrupt without a wake word, but keep this directed enough
+        // that arbitrary TV/room sentences do not constantly take ownership of the turn.
+        if (tokenCount(n)>=3 && n.length()>=10 && looksDirectedNatural(n)) return new Result(true,"meaningful_human_speech");
         return new Result(false,"not_explicit_enough");
     }
 
@@ -41,7 +40,10 @@ public final class BargeInPolicy {
         return a.size()>=2 && overlap>=0.72;
     }
 
-    private static boolean weakAmbient(String n){return n.matches("^(ага|угу|да|нет|ну|ок|окей|понятно|ясно)( \\p{L}+)?$");}
+    private static boolean looksDirectedNatural(String n){
+        return n.matches("^(я|мне|меня|мой|моя|мы|нам|давай|слушай|смотри|скажи|расскажи|объясни|продолж\\p{L}*|повтори|нет|но|а)\\b.*")
+                || n.matches("^(кто|что|где|когда|как|почему|зачем|сколько|какой|какая|какие|можешь|помнишь|знаешь)\\b.*");
+    }
     private static Set<String> tokens(String s){
         Set<String> out=new HashSet<>();
         for(String x:s.split(" "))if(x.length()>=3)out.add(x);
