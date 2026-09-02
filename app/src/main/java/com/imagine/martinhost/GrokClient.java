@@ -7,11 +7,12 @@ import java.util.*;import java.util.concurrent.*;
 public final class GrokClient {
  public interface Callback {void onResult(String text);void onError(String error);}
  private final Context context;private final ExecutorService executor=Executors.newSingleThreadExecutor();
- private final List<String[]> history=new ArrayList<>();private volatile int generation;private volatile HttpURLConnection connection;
+ private final List<String[]> history=new ArrayList<>();private volatile int generation;private volatile HttpURLConnection connection;private volatile String workingContext="";
  public GrokClient(Context c){context=c.getApplicationContext();}
  public void cancel(){generation++;HttpURLConnection c=connection;if(c!=null)c.disconnect();}
  public void close(){cancel();executor.shutdownNow();}
  public void clearHistory(){cancel();synchronized(history){history.clear();}}
+ public void setWorkingContext(String value){workingContext=value==null?"":value;}
  public void reply(String user,Callback cb){replyWithImage(user,null,cb);}
 
  public void replyWithImage(String user,byte[] jpeg,Callback cb){final int token=generation;DiagnosticRecorder.get(context).event("ai_queued",user);executor.execute(()->{HttpURLConnection c=null;try{
@@ -43,5 +44,5 @@ public final class GrokClient {
   return s.replaceAll("\\s+"," ").replaceAll("\\s+([,.!?])","$1").trim();
  }
 
- private String system(){return CompanionPrompt.system(context);}
+ private String system(){return CompanionPrompt.system(context,workingContext);}
 }
