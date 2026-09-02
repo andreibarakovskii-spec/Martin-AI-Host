@@ -8,7 +8,7 @@ public class ConversationDirectorTest {
         ConversationDirector d = new ConversationDirector();
         ConversationDirector.Decision r = d.decide("IMA, что мы сегодня делаем?", 1000);
         assertEquals(ConversationDirector.Kind.RESPOND, r.kind);
-        assertEquals("что мы сегодня делаем?", r.text);
+        assertTrue(r.text.startsWith("что мы сегодня делаем?"));
         assertEquals(AttentionManager.Attention.DIRECT, r.attention);
     }
 
@@ -16,7 +16,7 @@ public class ConversationDirectorTest {
         ConversationDirector d = new ConversationDirector();
         ConversationDirector.Decision r = d.decide("Има, расскажи про память", 1000);
         assertEquals(ConversationDirector.Kind.RESPOND, r.kind);
-        assertEquals("расскажи про память", r.text);
+        assertTrue(r.text.startsWith("расскажи про память"));
     }
 
     @Test public void ambientStatementIsIgnoredBeforeConversation() {
@@ -30,12 +30,31 @@ public class ConversationDirectorTest {
         ConversationDirector.Decision r = d.decide("А чем эпизодическая отличается от обычной?", 5000);
         assertEquals(ConversationDirector.Kind.RESPOND, r.kind);
         assertEquals(AttentionManager.Attention.LIKELY, r.attention);
+        assertTrue(r.text.contains("ВРЕМЕННЫЙ КОНТЕКСТ"));
     }
 
     @Test public void continuationExpires() {
         ConversationDirector d = new ConversationDirector();
         d.decide("IMA, расскажи про память", 1000);
         assertEquals(ConversationDirector.Kind.IGNORE, d.decide("Сегодня довольно тепло", 60_000).kind);
+    }
+
+    @Test public void relatedRoomSpeechCanBeKeptWithoutForcingReply() {
+        ConversationDirector d = new ConversationDirector();
+        d.decide("IMA, давай обсудим эпизодическую память", 1000);
+        ConversationDirector.Decision ambient=d.decide("Эпизодическая память связана с событиями", 60_000);
+        assertEquals(ConversationDirector.Kind.IGNORE,ambient.kind);
+        assertEquals("ambient_kept_as_dialog_context",ambient.reason);
+        ConversationDirector.Decision next=d.decide("IMA, продолжим эту тему",61_000);
+        assertTrue(next.text.contains("Эпизодическая память связана с событиями"));
+    }
+
+    @Test public void unrelatedRoomSpeechDoesNotPollutePromptContext() {
+        ConversationDirector d = new ConversationDirector();
+        d.decide("IMA, давай обсудим эпизодическую память", 1000);
+        d.decide("На кухне закипел чайник", 60_000);
+        ConversationDirector.Decision next=d.decide("IMA, продолжим про память",61_000);
+        assertFalse(next.text.contains("закипел чайник"));
     }
 
     @Test public void naturalInterruptStops() {
