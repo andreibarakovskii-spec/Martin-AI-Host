@@ -1,6 +1,6 @@
 # imagination — Development Progress / Handoff
 
-Updated: 2026-09-01
+Updated: 2026-09-02
 
 Read together with `docs/COMPANION_VISION.md` before continuing. Update this file after every meaningful implementation/test batch.
 
@@ -9,6 +9,7 @@ Read together with `docs/COMPANION_VISION.md` before continuing. Update this fil
 - Full product/platform name: **imagination**
 - Short name and assistant wake/name: **IMA** (Russian pronunciation: «Има»)
 - Legacy Martin/Sergey names may remain inside old technical class names while audio is stabilizing, but must not be shown to the user.
+- Future requirement: assistant display name and wake/address name must be user-configurable rather than permanently fixed to IMA.
 
 ## Repository
 
@@ -22,10 +23,10 @@ Read together with `docs/COMPANION_VISION.md` before continuing. Update this fil
 - versionName: `0.11.2-ima-repair`
 - app label: `imagination`
 - diagnostic label: `imagination — тест`
-- latest implementation commit before this handoff: `97eb5e39554052f49c143043315728931417b41e`
+- latest implementation commit: `97eb5e39554052f49c143043315728931417b41e`
 - workflow: `Build imagination APK`
-- run #250 / run id `33516439563` was queued when this handoff was written; re-check before claiming success.
-- expected artifact: `imagination-0.11.2-APK`
+- run #250 / run id `33516439563`: SUCCESS
+- artifact: `imagination-0.11.2-APK`, artifact id `9803892114`
 
 ## 0.11.2 changes
 
@@ -83,6 +84,52 @@ The supplied diagnostic session showed that barge-in was not yet reliable enough
 
 0.11.2 addresses naming, repair semantics, continuation state, and stop-policy ordering. It does **not** yet prove reliable Bluetooth interruption; another real-device diagnostic test is required.
 
+## Newly requested product feature — configurable identity and personal voice
+
+Add a dedicated Identity & Personal Voice system to the roadmap.
+
+### Configurable assistant identity
+
+Required:
+- user can change assistant display name;
+- user can change wake/address name separately;
+- pronunciation hints and alternate aliases;
+- changes propagate to AttentionManager/ConversationDirector/BargeInPolicy/prompts/UI without hard-coded names.
+
+### Imported personal voice / voice cloning
+
+Required user flow:
+1. choose or record one or more voice samples;
+2. check recording quality;
+3. complete consent/rights confirmation;
+4. derive or create a reusable voice profile using an approved voice-cloning/speaker-conditioning engine;
+5. preview generated speech;
+6. use that profile as the assistant TTS voice;
+7. allow switching voices and permanent deletion.
+
+Important: this is generative TTS based on the supplied voice, not playback of prerecorded phrases.
+
+Privacy/security requirements:
+- raw voice recordings and derived voice profiles should be encrypted and local-first where practical;
+- never expose samples in diagnostics;
+- support complete deletion of source audio and derived profile;
+- do not use uploaded voice recordings to automatically infer facts/personality/memories;
+- separate voice identity from assistant factual identity/personality.
+
+### Memorial / Legacy Voice use case
+
+The requested use case includes preserving the voice of a deceased loved one so the assistant can speak with that voice. Product wording and behavior must treat this as an AI memorial/legacy voice, not as proof that the deceased person is literally alive or conscious in the assistant.
+
+Required safeguards/product behavior:
+- explicit disclosure that speech and responses are AI-generated;
+- uploader attests they have appropriate permission/rights to use the recording;
+- extra confirmation for a deceased person's voice;
+- memorial voice is separate from memory/personality cloning by default;
+- assistant does not claim to literally be the deceased person unless a separately designed memorial persona mode exists and is explicitly enabled with appropriate safeguards;
+- user can instantly switch to a neutral voice and permanently delete the memorial voice profile.
+
+Future optional extension: a clearly labeled Legacy Profile using user-supplied stories/photos/memories. This would remain an AI reconstruction based on provided material, not a continuation of consciousness.
+
 ## Still not complete
 
 1. Stop detection still relies on remote STT after an audio candidate; a true local keyword interrupter is not implemented yet.
@@ -93,6 +140,8 @@ The supplied diagnostic session showed that barge-in was not yet reliable enough
 6. Internal legacy class names and preference key `martin` remain technical debt and should be migrated carefully later.
 7. Camera/person context is not active in CompanionActivity.
 8. Tokens/keys still need Android Keystore/encrypted storage.
+9. Assistant name is still hard-coded to IMA in 0.11.2; configurable identity is roadmap work.
+10. Imported/personal voice cloning is roadmap work and not implemented in 0.11.2.
 
 ## Next real-device test — 0.11.2
 
@@ -120,4 +169,6 @@ After the 0.11.2 real-device log:
 1. tune interrupt capture/AEC thresholds;
 2. add a local fast stop/pause keyword detector if remote STT remains slow;
 3. add end-of-user-speech to first-audio latency metrics and streaming response/TTS;
-4. then begin Memory Engine v1.
+4. begin Memory Engine v1;
+5. refactor hard-coded IMA naming into a persistent AssistantIdentity profile;
+6. evaluate/implement a consent-aware Personal Voice pipeline and memorial/legacy voice mode.
