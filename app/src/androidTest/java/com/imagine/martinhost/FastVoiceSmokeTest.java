@@ -7,12 +7,12 @@ import static org.junit.Assert.*;
 import android.os.SystemClock;
 import android.util.Log;
 import java.io.File;
+import java.util.concurrent.atomic.AtomicInteger;
 /** Real JNI/model smoke test. Emulator timing is not a handset benchmark. */
 @RunWith(AndroidJUnit4.class)
 public final class FastVoiceSmokeTest {
  @Test public void testNativeSynthesis()throws Exception{
   File dir=FastVoiceModel.ensure(InstrumentationRegistry.getInstrumentation().getTargetContext().getFilesDir(),()->false,s->Log.i("FastVoiceSmoke",s));
-  // Check actual downloaded vocabulary, not just a Java string transformation.
   byte[] index=java.nio.file.Files.readAllBytes(new File(dir,"unicode_indexer.bin").toPath());
   java.nio.ByteBuffer ids=java.nio.ByteBuffer.wrap(index).order(java.nio.ByteOrder.LITTLE_ENDIAN);
   String normalized=FastVoiceEngine.normalizeText("Андрей, с днём рождения!");
@@ -22,9 +22,11 @@ public final class FastVoiceSmokeTest {
    long t=SystemClock.elapsedRealtime();FastVoiceEngine.Pcm a=e.synthesize("Андрей, с днём рождения!","F5",1f,()->false);
    Log.i("FastVoiceSmoke","F5 synthesis_ms="+(SystemClock.elapsedRealtime()-t)+" samples="+a.pcm16.length/2);
    assertTrue(a.sampleRate>0);assertTrue(a.pcm16.length>1000);
-   t=SystemClock.elapsedRealtime();FastVoiceEngine.Pcm b=e.synthesize("Как настроение?","M1",1.1f,()->false);
-   Log.i("FastVoiceSmoke","M1 speed=1.1 synthesis_ms="+(SystemClock.elapsedRealtime()-t)+" samples="+b.pcm16.length/2);
-   assertTrue(b.pcm16.length>1000);
+   AtomicInteger callbacks=new AtomicInteger();AtomicInteger bytes=new AtomicInteger();
+   t=SystemClock.elapsedRealtime();
+   int rate=e.synthesizeStreaming("Как настроение?","M1",1.1f,()->false,pcm->{callbacks.incrementAndGet();bytes.addAndGet(pcm.length);return true;});
+   Log.i("FastVoiceSmoke","streaming_ms="+(SystemClock.elapsedRealtime()-t)+" callbacks="+callbacks.get()+" bytes="+bytes.get()+" rate="+rate);
+   assertTrue(rate>0);assertTrue("No streaming callbacks",callbacks.get()>0);assertTrue("No streamed PCM",bytes.get()>1000);
   }
  }
 }
