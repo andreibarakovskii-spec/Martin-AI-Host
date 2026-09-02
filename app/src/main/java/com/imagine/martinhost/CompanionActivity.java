@@ -36,6 +36,7 @@ public final class CompanionActivity extends FragmentActivity {
     private String queuedSpeech;
     private volatile String currentAssistantSpeech="";
     private String interruptedAssistantSpeech="";
+    private long responseReadyAtMs;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -70,23 +71,28 @@ public final class CompanionActivity extends FragmentActivity {
                 interruptBusy=true;
                 final int token=generation;
                 final long started=android.os.SystemClock.elapsedRealtime();
-                DiagnosticRecorder.get(CompanionActivity.this).event("barge_stt_start","generation="+token);
+                final boolean playbackPaused=speaker!=null&&speaker.pauseForBargeIn();
+                DiagnosticRecorder.get(CompanionActivity.this).event("barge_speculative_pause","paused="+playbackPaused+";generation="+token);
                 stt.transcribe(wav,new GroqTranscriber.Callback(){
                     @Override public void onText(String text){runOnUiThread(()->{
                         interruptBusy=false;
-                        if(destroyed||!active||token!=generation||turns.state()!=TurnManager.State.SPEAKING)return;
+                        if(destroyed||!active||token!=generation){if(playbackPaused&&speaker!=null)speaker.resumeAfterBargeIn();return;}
                         BargeInPolicy.Result r=bargePolicy.evaluate(text,currentAssistantSpeech);
                         long sttMs=android.os.SystemClock.elapsedRealtime()-started;
-                        if(!r.accepted){DiagnosticRecorder.get(CompanionActivity.this).event("barge_rejected","reason="+r.reason+";stt_ms="+sttMs+";text="+text);return;}
+                        if(!r.accepted){
+                            boolean resumed=playbackPaused&&speaker!=null&&speaker.resumeAfterBargeIn();
+                            DiagnosticRecorder.get(CompanionActivity.this).event("barge_rejected","reason="+r.reason+";stt_ms="+sttMs+";resumed="+resumed+";text="+text);
+                            return;
+                        }
                         long cancelStarted=android.os.SystemClock.elapsedRealtime();
-                        DiagnosticRecorder.get(CompanionActivity.this).event("barge_confirmed","reason="+r.reason+";stt_ms="+sttMs+";text="+text);
+                        DiagnosticRecorder.get(CompanionActivity.this).event("barge_confirmed","reason="+r.reason+";stt_ms="+sttMs+";speculative_pause="+playbackPaused+";text="+text);
                         interruptedAssistantSpeech=currentAssistantSpeech;
                         cancelCurrent(false);
                         DiagnosticRecorder.get(CompanionActivity.this).event("tts_cancel_latency_ms",String.valueOf(android.os.SystemClock.elapsedRealtime()-cancelStarted));
                         heard.setText("Вы: "+text);
                         handleTranscript(text);
                     });}
-                    @Override public void onError(String error){interruptBusy=false;DiagnosticRecorder.get(CompanionActivity.this).event("barge_rejected","reason=stt_error;"+error);}
+                    @Override public void onError(String error){runOnUiThread(()->{interruptBusy=false;boolean resumed=playbackPaused&&speaker!=null&&speaker.resumeAfterBargeIn();DiagnosticRecorder.get(CompanionActivity.this).event("barge_rejected","reason=stt_error;resumed="+resumed+";"+error);});}
                 });
             }
 
@@ -98,14 +104,14 @@ public final class CompanionActivity extends FragmentActivity {
         speaker=MartinSpeakerFactory.create(this,new MartinSpeaker.Listener(){
             @Override public void onPreparing(String message){runOnUiThread(()->detail.setText(message));}
             @Override public void onReady(){runOnUiThread(()->{voiceReady=true;detail.setText(active?"Говори естественно":"Голос готов");if(queuedSpeech!=null){String q=queuedSpeech;queuedSpeech=null;speakNow(q);}});}
-            @Override public void onStart(){runOnUiThread(()->{state.setText("Говорю…");orb.setState("talking");detail.setText("Можно перебить: «IMA, погоди…» или «стоп»");});}
+            @Override public void onStart(){runOnUiThread(()->{long now=android.os.SystemClock.elapsedRealtime();if(responseReadyAtMs>0)DiagnosticRecorder.get(CompanionActivity.this).event("response_ready_to_first_audio_ms",String.valueOf(now-responseReadyAtMs));responseReadyAtMs=0;state.setText("Говорю…");orb.setState("talking");detail.setText("Перебивай естественно: IMA остановится и дослушает");});}
             @Override public void onLevel(float level){runOnUiThread(()->orb.setLevel(level));}
             @Override public void onSpectrum(float[] bands){runOnUiThread(()->orb.setSpectrum(bands));}
             @Override public void onDone(){runOnUiThread(()->{currentAssistantSpeech="";interruptBusy=false;orb.setLevel(0f);PartyMusic.get(CompanionActivity.this).duck(false);turns.onAiSpeechDone();});}
             @Override public void onError(String error){runOnUiThread(()->{currentAssistantSpeech="";interruptBusy=false;voiceReady=false;queuedSpeech=null;PartyMusic.get(CompanionActivity.this).duck(false);detail.setText(error);turns.forceListen();});}
         });
         speaker.prepare();
-        DiagnosticRecorder.get(this).event("companion_runtime","v1.2;brand=imagination;assistant=IMA;director=local;party_director=false;barge_monitor=strict");
+        DiagnosticRecorder.get(this).event("companion_runtime","v1.3;brand=imagination;assistant=IMA;barge=speculative-pause;natural_interrupt=true;tts_startup_chunks=true");
     }
 
     private void handleTranscript(String text){
@@ -133,7 +139,7 @@ public final class CompanionActivity extends FragmentActivity {
         final int token=generation;final long started=android.os.SystemClock.elapsedRealtime();
         turns.onUserFinal();state.setText("Думаю…");detail.setText("Формулирую ответ");orb.setState("thinking");DiagnosticRecorder.get(this).event("companion_ai_start","generation="+token);
         ai.reply(prompt,new GrokClient.Callback(){
-            @Override public void onResult(String text){runOnUiThread(()->{if(destroyed||token!=generation)return;DiagnosticRecorder.get(CompanionActivity.this).event("companion_ai_done","ms="+(android.os.SystemClock.elapsedRealtime()-started));speak(cleanSpeech(text));});}
+            @Override public void onResult(String text){runOnUiThread(()->{if(destroyed||token!=generation)return;DiagnosticRecorder.get(CompanionActivity.this).event("companion_ai_done","ms="+(android.os.SystemClock.elapsedRealtime()-started));responseReadyAtMs=android.os.SystemClock.elapsedRealtime();speak(cleanSpeech(text));});}
             @Override public void onError(String error){runOnUiThread(()->{if(destroyed||token!=generation)return;DiagnosticRecorder.get(CompanionActivity.this).event("companion_ai_error",error);detail.setText(error);turns.forceListen();});}
         });
     }
@@ -156,7 +162,7 @@ public final class CompanionActivity extends FragmentActivity {
 
     private void stopListening(){active=false;cancelCurrent(true);if(audio!=null)audio.stop();state.setText("Готов");detail.setText("Нажми «Начать»");mic.setText("🎙  НАЧАТЬ");orb.setLevel(0f);orb.setState("idle");}
 
-    private void cancelCurrent(boolean resetConversation){generation++;queuedSpeech=null;currentAssistantSpeech="";interruptBusy=false;if(ai!=null)ai.cancel();if(stt!=null)stt.cancel();if(speaker!=null)speaker.stop();turns.forceListen();PartyMusic.get(this).duck(false);if(resetConversation){conversation.reset();interruptedAssistantSpeech="";}DiagnosticRecorder.get(this).event("companion_cancel","reset="+resetConversation+";generation="+generation);}
+    private void cancelCurrent(boolean resetConversation){generation++;queuedSpeech=null;currentAssistantSpeech="";responseReadyAtMs=0;interruptBusy=false;if(ai!=null)ai.cancel();if(stt!=null)stt.cancel();if(speaker!=null)speaker.stop();turns.forceListen();PartyMusic.get(this).duck(false);if(resetConversation){conversation.reset();interruptedAssistantSpeech="";}DiagnosticRecorder.get(this).event("companion_cancel","reset="+resetConversation+";generation="+generation);}
 
     private void onTurnState(TurnManager.State s){DiagnosticRecorder.get(this).event("companion_turn",s.name());switch(s){case LISTENING:orb.setState(active?"listening":"idle");if(active)state.setText("Слушаю…");break;case THINKING:orb.setState("thinking");state.setText("Думаю…");break;case SPEAKING:orb.setState("talking");state.setText("Говорю…");break;case COOLDOWN:orb.setState("listening");break;}}
 
