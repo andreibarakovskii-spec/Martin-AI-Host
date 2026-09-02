@@ -25,6 +25,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
  @Volatile private var track: AudioTrack?=null
  @Volatile private var ready=false
  @Volatile private var closed=false
+ @Volatile private var bargePaused=false
  override fun isReady()=ready
  override fun prepare(){
   if(closed||ready||!preparing.compareAndSet(false,true))return
@@ -40,7 +41,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   val voice=LocalVoiceProfiles.valid(requested)
   if(engine!=null){loadedVoice=voice;return}
   val log=DiagnosticRecorder.get(app)
-  log.event("tts_prepare_start","Supertonic3;sherpa-onnx=1.13.2;INT8;threads=2;steps=5;voice=$voice")
+  log.event("tts_prepare_start","Supertonic3;sherpa-onnx=1.13.2;INT8;threads=4;steps=5;voice=$voice")
   val dir=FastVoiceModel.ensure(app.filesDir,{closed}){message->
    scope.launch(Dispatchers.Main){if(!closed)listener.onPreparing(message)}
   }
@@ -78,11 +79,9 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
     val clean=text.replace(Regex("<[^>]+>"),"").replace(Regex("\\s+")," ").trim()
     if(clean.isBlank()){withContext(Dispatchers.Main){if(token==generation.get())listener.onDone()};return@enqueue}
     val sentences=SpeechChunks.split(clean)
-    DiagnosticRecorder.get(app).event("tts_chunks","count=${sentences.size};short_reply_buffer=${sentences.size==1};unicode=NFKD")
+    DiagnosticRecorder.get(app).event("tts_chunks","count=${sentences.size};startup_chunk_chars=${sentences.firstOrNull()?.length?:0};unicode=NFKD")
     var started=false
     var lastPlaybackEnd=0L
-    // At most one future chunk. Native work and playback may overlap, but model
-    // ownership stays with this operation until every child has completed.
     coroutineScope {
      suspend fun synthesize(sentence:String):FastVoiceEngine.Pcm=withContext(Dispatchers.IO){
       if(token!=generation.get()||closed)throw CancellationException()
@@ -115,29 +114,39 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   val min=AudioTrack.getMinBufferSize(rate,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4096)
   val t=AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
    .setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()).setBufferSizeInBytes(min).setTransferMode(AudioTrack.MODE_STREAM).build()
-  track=t
+  track=t;bargePaused=false
   try {
    if(token!=generation.get())return
    t.play();DiagnosticRecorder.get(app).event("playback_start",audioFile);var offset=0;var lastReport=0L
    while(offset<pcm.size&&token==generation.get()&&!closed){
+    while(bargePaused&&token==generation.get()&&!closed)delay(10)
+    if(token!=generation.get()||closed)break
     val n=t.write(pcm,offset,minOf(2048,pcm.size-offset),AudioTrack.WRITE_BLOCKING)
     if(n<=0)throw IllegalStateException("AudioTrack write failed")
     offset+=n
     val now=android.os.SystemClock.elapsedRealtime()
-    if(now-lastReport>=200){DiagnosticRecorder.get(app).event("playback_progress","$audioFile;consumed_frames=${t.playbackHeadPosition};written_bytes=$offset;underruns=${t.underrunCount};route_type=${t.routedDevice?.type ?: -1};buffer_frames=${t.bufferSizeInFrames}");lastReport=now}
+    if(now-lastReport>=200){DiagnosticRecorder.get(app).event("playback_progress","$audioFile;consumed_frames=${t.playbackHeadPosition};written_bytes=$offset;underruns=${t.underrunCount};route_type=${t.routedDevice?.type ?: -1};buffer_frames=${t.bufferSizeInFrames};barge_paused=$bargePaused");lastReport=now}
     val audible=((t.playbackHeadPosition.toLong() and 0xffffffffL)*2).toInt().coerceIn(0,pcm.size-2)
     val level=rms(pcm,audible,minOf(2048,pcm.size-audible))
     val bands=spectrum(pcm,audible,rate)
     withContext(Dispatchers.Main){if(token==generation.get()){listener.onLevel(level);listener.onSpectrum(bands)}}
    }
-   // Writing completion is not playback completion: drain the device buffer first.
    val frames=pcm.size/2L
    val deadline=android.os.SystemClock.elapsedRealtime()+5000L
    while(token==generation.get()&&!closed&&(t.playbackHeadPosition.toLong() and 0xffffffffL)<frames){
+    if(bargePaused){delay(10);continue}
     if(android.os.SystemClock.elapsedRealtime()>deadline)throw IllegalStateException("Playback drain timeout")
     delay(15)
    }
-  }finally{DiagnosticRecorder.get(app).event("playback_end","$audioFile;consumed_frames=${t.playbackHeadPosition};cancelled=${token!=generation.get()}");if(track===t)track=null;try{t.stop()}catch(_:Exception){};t.release()}
+  }finally{bargePaused=false;DiagnosticRecorder.get(app).event("playback_end","$audioFile;consumed_frames=${t.playbackHeadPosition};cancelled=${token!=generation.get()}");if(track===t)track=null;try{t.stop()}catch(_:Exception){};t.release()}
+ }
+ override fun pauseForBargeIn():Boolean{
+  val t=track?:return false
+  return try{if(t.playState==AudioTrack.PLAYSTATE_PLAYING){t.pause();bargePaused=true;DiagnosticRecorder.get(app).event("barge_playback_pause","frames=${t.playbackHeadPosition}");true}else false}catch(_:Exception){false}
+ }
+ override fun resumeAfterBargeIn():Boolean{
+  val t=track?:return false
+  return try{if(bargePaused){t.play();bargePaused=false;DiagnosticRecorder.get(app).event("barge_playback_resume","frames=${t.playbackHeadPosition}");true}else false}catch(_:Exception){false}
  }
  private fun spectrum(pcm:ByteArray,offset:Int,rate:Int):FloatArray {
   val size=minOf(512,(pcm.size-offset)/2)
@@ -154,7 +163,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
- override fun stop(){DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
+ override fun stop(){bargePaused=false;DiagnosticRecorder.get(app).event("tts_stop_requested","");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
  override fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
  override fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
 }
