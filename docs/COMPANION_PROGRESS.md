@@ -7,9 +7,9 @@ Read together with `docs/COMPANION_VISION.md` before continuing. Update this fil
 ## Product identity
 
 - Full product/platform name: **imagination**
-- Short name and assistant wake/name: **IMA** (Russian pronunciation: «Има»)
-- Legacy Martin/Sergey names may remain inside old technical class names while audio is stabilizing, but must not be shown to the user.
-- Future requirement: assistant display name and wake/address name must be user-configurable rather than permanently fixed to IMA.
+- Current default assistant name/wake name: **IMA** (Russian pronunciation: «Има»)
+- Legacy Martin/Sergey names may remain in internal stable classes while audio is being stabilized.
+- Future requirement: display name and wake/address name must be user-configurable.
 
 ## Repository
 
@@ -17,148 +17,118 @@ Read together with `docs/COMPANION_VISION.md` before continuing. Update this fil
 - Active branch: `companion-core-v1`
 - Recovery branches: `voice-orb-v1`, `companion-core-v1-baseline`
 
-## Current version — 0.11.3
+## Current version — 0.11.4 Streaming Voice
 
-- versionCode: 113
-- versionName: `0.11.3-voice-latency`
+- versionCode: 114
+- versionName: `0.11.4-streaming-voice`
 - app label: `imagination`
 - diagnostic label: `imagination — тест`
-- tested implementation commit: `d65684e0bf02c9677119080300821d44b8a2dce1`
+- tested HEAD: `e7363f72aa879c9e7d77a7c1b4f7917e8129f96c`
 - workflow: `Build imagination APK`
-- run #266 / run id `33609560669`
-- job id `100181249204`
+- run #284 / run id `33616208531`
+- job id `100202509576`
 - result: COMPLETED / SUCCESS
 - unit tests/build: success
 - APK integrity: success
 - Android 35 emulator launch: success
-- native FastVoiceSmokeTest: success
-- APK artifact: `imagination-0.11.3-APK`, artifact id `9838488433`, archive digest `sha256:a3efa0393f7ffed77fa1fc61a1bba70225089f0dd97b75ecb9c587ba9cdca96c`
-- QA artifact: `imagination-0.11.3-QA`, artifact id `9838605676`
-- extracted APK SHA-256: `1b82bcc495621225d5c291642d7e69142c3c8242ec0e90efb65657a9649ec244`
+- native FastVoiceSmokeTest: success, including real sherpa streaming callback verification
+- APK artifact: `imagination-0.11.4-APK`, artifact id `9841098856`, archive digest `sha256:144f62c9c557339021c182878ab72657b5ff9a5a3112a7f79e70d29413d49067`
+- QA artifact: `imagination-0.11.4-QA`, artifact id `9841219486`
+- extracted APK SHA-256: `39531480c6fefacc1f3bb042d2b485c86475240d18b8cb61688b9bc2671060f2`
 
-IMPORTANT: CI/emulator confirms build, install, launch and native voice smoke only. Real Bluetooth interruption latency/echo behavior is still unconfirmed until a target-device diagnostic test.
+IMPORTANT: CI/emulator proves build/install/launch and native streaming TTS execution. It does not prove real Bluetooth audible latency or echo behavior on the target Realme device.
 
-## 0.11.3 — Voice latency / natural interruption
+## 0.11.4 — what changed
 
-This release is based on the real-device 0.11.2 diagnostic session. The observed failure was no longer basic cancellation: once a barge-in command had been transcribed, TTS cancellation was fast, but the user still perceived a long delay because remote STT validation happened before cancellation. Natural multiword interruptions were also rejected by the old explicit-only policy, and first local-TTS audio could take several seconds on long chunks.
+### 1. Hot TTS + speech-start pre-arm
 
-### Speculative barge pause
+`MartinSpeaker` now has `preArm()`.
 
-`MartinSpeaker` now exposes optional `pauseForBargeIn()` / `resumeAfterBargeIn()` methods.
+`CompanionActivity` calls it as soon as VAD reports the beginning of user speech, before the final STT transcript exists. The local neural engine normally remains loaded in RAM from app startup, so pre-arm does not reload the model; it verifies/maintains the hot voice path and records diagnostics.
 
-`MartinNeuralSpeaker` implements them using `AudioTrack.pause()` / `play()` while retaining playback position.
+Diagnostics:
+- `user_speech_prearm`
+- `tts_prearm`
 
-`CompanionActivity` now pauses neural playback immediately when `ContinuousSpeechEngine` emits an interrupt audio chunk, before waiting for remote STT:
+Barge-in also pre-arms the next response path while the current playback is being interrupted.
 
-1. capture interrupt candidate;
-2. immediately pause current AudioTrack when supported;
-3. transcribe candidate;
-4. if rejected as echo/ambient, resume from the same playback position;
-5. if accepted, cancel the old response and route the user phrase normally.
+### 2. Grok/xAI/Groq response streaming
 
-New diagnostics:
-- `barge_speculative_pause`
-- `barge_playback_pause`
-- `barge_playback_resume`
-- `barge_rejected` includes `resumed=`
-- `barge_confirmed` includes `speculative_pause=`
+`GrokClient` now supports OpenAI-compatible SSE streaming via `replyStreaming()`.
 
-This removes remote-STT validation time from the intended audible stop path on the local neural speaker, but target-device Bluetooth behavior must still be measured. System Android TTS does not currently support position-preserving speculative pause and falls back to the old validation behavior.
+It records:
+- `ai_request_start ... stream=true`
+- `ai_first_delta_ms`
+- final `ai_result`
 
-### More natural barge-in policy
+`CompanionActivity` no longer needs to wait for the complete LLM response before beginning speech. It extracts the first finished sentence, or a bounded natural prefix if the model has not emitted punctuation yet, and sends that prefix to TTS immediately.
 
-`BargeInPolicy` now:
-- keeps explicit stop/pause words as strongest signals;
-- accepts IMA variants including common STT form `Иму`;
-- rejects probable TTS echo before accepting generic conversational speech;
-- accepts directed, non-echo meaningful multiword phrases such as `Я живу в Дзержинске` and `Продолжай говорить про память` as conversational barge-in;
-- rejects unrelated room sentences such as `На улице проехала красная машина` and tiny acknowledgements such as `ага`, `угу`, `ок`.
+When the full response arrives, the already-spoken prefix is removed and only the remainder is spoken. Unit tests cover first-sentence extraction, bounded early prefixes and no-repeat remainder splitting.
 
-Unit tests cover these cases plus explicit stop, IMA variants, repair intent and echo rejection.
+Diagnostics:
+- `ai_early_speech`
+- `companion_ai_done ... stream=true`
 
-### Lower TTS startup latency
+### 3. Real PCM streaming from sherpa/Supertonic
 
-`SpeechChunks` was changed from long sentence buffers to latency-oriented chunks:
-- first generated chunk targets roughly <=56 characters and prefers punctuation boundaries;
-- later chunks target roughly <=110 characters;
-- full requested text and punctuation are preserved.
+The previous sherpa callback received partial `FloatArray samples` but discarded them and used the callback only for cancellation.
 
-The local Supertonic/sherpa engine keeps `numSteps=5` for voice quality but now uses 4 CPU threads instead of 2.
+`FastVoiceEngine.synthesizeStreaming()` now converts every non-empty callback sample buffer to PCM16 and sends it to the playback sink immediately while inference is still running.
 
-`MartinNeuralSpeaker` prefetches the next chunk while the current one plays as before.
+`MartinNeuralSpeaker` keeps one hot model session and one `AudioTrack` for the response. It starts playback on the first PCM callback rather than waiting for a complete generated WAV.
 
-New metric:
-- `response_ready_to_first_audio_ms` measures time from completed LLM response to TTS playback start.
+Diagnostics:
+- `tts_first_pcm`
+- `tts_pcm_push`
+- `tts_synthesis_start/end`
+- `playback_start/end`
 
-The first CI run after changing chunking failed one legacy unit test that expected every short reply to remain one TTS buffer. The test was updated to assert the new low-latency contract instead: natural sentence chunks, bounded first chunk and lossless text reconstruction. Run #266 then passed the full suite.
+The Android instrumentation smoke test explicitly asserts that real sherpa native inference invokes the streaming callback with non-empty PCM data. Run #284 passed.
+
+### 4. Faster cancellation after interruption
+
+The existing generation token is checked from the streaming PCM callback. When the user interrupts, old inference can stop at a callback boundary instead of needing to finish an entire WAV/chunk before the next request can proceed.
+
+A second full ONNX TTS session was deliberately not added yet. First measure 0.11.4 on the real device; duplicating the model may add hundreds of MB of memory and thermal throttling without being necessary once streaming cancellation works.
 
 ### Runtime marker
 
 Expected:
-`companion_runtime: v1.3;brand=imagination;assistant=IMA;barge=speculative-pause;natural_interrupt=true;tts_startup_chunks=true`
+`companion_runtime: v1.4;brand=imagination;assistant=IMA;llm_stream=true;tts_prearm=true;pcm_stream=true;barge=speculative-pause`
 
-## 0.11.2 retained behavior
+## Retained conversation behavior work
 
-- IMA / imagination user-facing naming.
-- explicit correction/repair routing.
-- interrupted answer state and `продолжи` / `продолжай` / `договори`.
-- local STOP/MUSIC/VISION routing.
-- acoustic interrupt candidate monitor with AEC/NS where supported.
+The branch also contains the new `ConversationWorkingMemory` / human-like conversation direction work: current topic, recent relevant turns, ambient-vs-conversation handling and groundwork for multi-person dialogue. Reliable speaker identity/diarization is still not implemented and must not be faked.
 
-## Real-device validation required for 0.11.3
+## Real-device validation for 0.11.4
 
-CI/emulator cannot prove Bluetooth echo behavior or actual latency on the target Realme device.
-
-Test sequence after installing 0.11.3:
-1. Ask IMA for a long explanation.
-2. While it speaks, say a normal directed sentence without `стоп`, e.g. `Я живу в Дзержинске`.
-3. Verify speech audibly pauses before cloud STT has completed and the new sentence is processed.
-4. Start another answer and say only `стоп` / `подожди`.
-5. Let IMA speak with no user speech and verify TTS echo does not cause permanent interruption; if a false candidate occurs it should resume.
-6. Compare `response_ready_to_first_audio_ms` and `tts_synthesis_end` against the 0.11.2 log.
+On the target phone, test:
+1. Start talking and verify `user_speech_prearm` appears near speech onset.
+2. Ask a normal 2–3 sentence question; measure end of user speech -> `ai_first_delta_ms` -> `ai_early_speech` -> `tts_first_pcm` -> `playback_start`.
+3. Compare perceived first-audio latency to 0.11.3.
+4. Ask for a long answer and verify the first sentence begins before the complete Grok response is finished.
+5. Interrupt mid-answer with a normal new sentence and with `стоп`/`подожди`; verify old PCM stops and the new response starts without waiting for the old inference to finish.
+6. Verify no repeated first sentence when the remainder starts.
 7. Export diagnostics.
-
-Inspect:
-- `barge_speculative_pause`
-- `barge_playback_pause`
-- `barge_playback_resume`
-- `barge_confirmed`
-- `barge_rejected`
-- `response_ready_to_first_audio_ms`
-- `tts_synthesis_start/end`
-- `tts_chunks`
-- `playback_start`
-- `mic_health`
 
 ## Still not complete
 
-1. A true local speech keyword recognizer for `стоп/погоди` is still not implemented; 0.11.3 uses speculative playback pause after interrupt-candidate segmentation to hide most remote-STT latency instead.
-2. Bluetooth AEC/echo rejection remains device-dependent.
-3. Exact audible interruption latency must be measured on the real device.
-4. Grok responses are still non-streaming; generation must complete before local TTS starts.
-5. Local TTS remains whole-chunk inference, not sample-streaming neural synthesis.
+1. Real Bluetooth first-audio latency for 0.11.4 is not measured yet.
+2. Bluetooth AEC/self-echo remains device-dependent.
+3. Streaming LLM currently starts TTS on a complete first sentence or bounded prefix, not token-by-token phoneme synthesis.
+4. There is still one heavy ONNX TTS session; add a second worker only if real-device logs prove cancellation still blocks new inference materially.
+5. A true local keyword recognizer for `стоп/погоди` is not yet implemented.
 6. Long-term Memory Engine is not implemented.
-7. Camera/person context is not active in CompanionActivity.
-8. Tokens/keys still need Android Keystore/encrypted storage.
-9. Assistant name is still hard-coded to IMA; configurable identity is roadmap work.
-10. Imported/personal voice cloning is roadmap work.
+7. Speaker diarization / durable voice identity is not implemented.
+8. Camera/person context is not active in CompanionActivity.
+9. Tokens/keys still need Android Keystore/encrypted storage.
+10. Configurable assistant identity and Personal Voice cloning remain roadmap work.
 
-## Future configurable identity / Personal Voice
+## Next priorities
 
-Required:
-- change display and wake names;
-- pronunciation hints/aliases;
-- imported voice recordings -> reusable generative TTS profile;
-- encrypted local-first source/profile storage where practical;
-- consent/rights confirmation and complete deletion;
-- clearly disclosed Memorial / Legacy Voice mode for voices of deceased loved ones, kept separate from factual personality/memory cloning by default.
-
-## Next development priority
-
-After the 0.11.3 real-device log:
-1. tune false-positive speculative pauses and echo threshold from actual Bluetooth data;
-2. decide whether a local stop/wake recognizer is still needed after measuring perceived latency;
-3. implement streaming LLM output into incremental TTS so synthesis can begin before the full answer is generated;
-4. then begin Memory Engine v1;
-5. refactor hard-coded IMA naming into persistent `AssistantIdentity` profile;
-6. evaluate/implement consent-aware Personal Voice pipeline.
+1. Analyze 0.11.4 real-device diagnostic timing and audible behavior.
+2. If first PCM is still slow, benchmark smaller Supertonic model/settings or a different streaming TTS backend without sacrificing voice quality.
+3. If interruption still waits on inference cancellation, prototype a two-session TTS pool and measure RAM/temperature/latency before keeping it.
+4. Continue Conversation Behavior Engine: semantic topic tracking, `ShouldSpeak`, group-dialogue working memory and speaker diarization.
+5. Begin durable Memory Engine v1 after voice turn-taking is sufficiently natural.
+6. Implement persistent `AssistantIdentity`, then consent-aware Personal Voice / Legacy Voice.
