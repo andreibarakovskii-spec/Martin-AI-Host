@@ -14,6 +14,10 @@ public interface MartinSpeaker extends AutoCloseable {
  boolean isReady();
  void prepare();
  void speak(String text,String emotion,float energy);
+ /** Pause current playback without discarding its position. Returns true when supported. */
+ default boolean pauseForBargeIn(){return false;}
+ /** Resume playback previously paused by pauseForBargeIn(). */
+ default boolean resumeAfterBargeIn(){return false;}
  void stop();
  void releaseModel();
  void close();
