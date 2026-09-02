@@ -13,6 +13,8 @@ public interface MartinSpeaker extends AutoCloseable {
  }
  boolean isReady();
  void prepare();
+ /** Called on user speech start so a hot voice path is ready before the answer arrives. */
+ default void preArm(){if(!isReady())prepare();}
  void speak(String text,String emotion,float energy);
  /** Pause current playback without discarding its position. Returns true when supported. */
  default boolean pauseForBargeIn(){return false;}
