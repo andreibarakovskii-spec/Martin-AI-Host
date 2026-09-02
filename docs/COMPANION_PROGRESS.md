@@ -23,10 +23,20 @@ Read together with `docs/COMPANION_VISION.md` before continuing. Update this fil
 - versionName: `0.11.3-voice-latency`
 - app label: `imagination`
 - diagnostic label: `imagination — тест`
-- latest implementation/test commit before this handoff: `9e5a2ed5764ff4671f6a79ad82c55592fdac4eb3`
+- tested implementation commit: `d65684e0bf02c9677119080300821d44b8a2dce1`
 - workflow: `Build imagination APK`
-- run #262 / run id `33609132454` was in progress when this handoff was written; re-check before claiming success.
-- expected artifact: `imagination-0.11.3-APK`
+- run #266 / run id `33609560669`
+- job id `100181249204`
+- result: COMPLETED / SUCCESS
+- unit tests/build: success
+- APK integrity: success
+- Android 35 emulator launch: success
+- native FastVoiceSmokeTest: success
+- APK artifact: `imagination-0.11.3-APK`, artifact id `9838488433`, archive digest `sha256:a3efa0393f7ffed77fa1fc61a1bba70225089f0dd97b75ecb9c587ba9cdca96c`
+- QA artifact: `imagination-0.11.3-QA`, artifact id `9838605676`
+- extracted APK SHA-256: `1b82bcc495621225d5c291642d7e69142c3c8242ec0e90efb65657a9649ec244`
+
+IMPORTANT: CI/emulator confirms build, install, launch and native voice smoke only. Real Bluetooth interruption latency/echo behavior is still unconfirmed until a target-device diagnostic test.
 
 ## 0.11.3 — Voice latency / natural interruption
 
@@ -53,7 +63,7 @@ New diagnostics:
 - `barge_rejected` includes `resumed=`
 - `barge_confirmed` includes `speculative_pause=`
 
-This should remove the remote-STT delay from the *audible* stop response on the local neural speaker. System Android TTS does not currently support position-preserving speculative pause and falls back to the old validation behavior.
+This removes remote-STT validation time from the intended audible stop path on the local neural speaker, but target-device Bluetooth behavior must still be measured. System Android TTS does not currently support position-preserving speculative pause and falls back to the old validation behavior.
 
 ### More natural barge-in policy
 
@@ -61,17 +71,17 @@ This should remove the remote-STT delay from the *audible* stop response on the 
 - keeps explicit stop/pause words as strongest signals;
 - accepts IMA variants including common STT form `Иму`;
 - rejects probable TTS echo before accepting generic conversational speech;
-- accepts a non-echo meaningful phrase with at least 3 words / sufficient text length as conversational barge-in;
-- keeps tiny acknowledgements such as `ага`, `угу`, `ок` from interrupting.
+- accepts directed, non-echo meaningful multiword phrases such as `Я живу в Дзержинске` and `Продолжай говорить про память` as conversational barge-in;
+- rejects unrelated room sentences such as `На улице проехала красная машина` and tiny acknowledgements such as `ага`, `угу`, `ок`.
 
-Unit tests cover the real-device phrase `Я живу в Дзержинске`, IMA STT variant `Иму`, explicit stop, echo rejection and weak ambient rejection.
+Unit tests cover these cases plus explicit stop, IMA variants, repair intent and echo rejection.
 
 ### Lower TTS startup latency
 
 `SpeechChunks` was changed from long sentence buffers to latency-oriented chunks:
 - first generated chunk targets roughly <=56 characters and prefers punctuation boundaries;
 - later chunks target roughly <=110 characters;
-- full requested text is still preserved.
+- full requested text and punctuation are preserved.
 
 The local Supertonic/sherpa engine keeps `numSteps=5` for voice quality but now uses 4 CPU threads instead of 2.
 
@@ -79,6 +89,8 @@ The local Supertonic/sherpa engine keeps `numSteps=5` for voice quality but now 
 
 New metric:
 - `response_ready_to_first_audio_ms` measures time from completed LLM response to TTS playback start.
+
+The first CI run after changing chunking failed one legacy unit test that expected every short reply to remain one TTS buffer. The test was updated to assert the new low-latency contract instead: natural sentence chunks, bounded first chunk and lossless text reconstruction. Run #266 then passed the full suite.
 
 ### Runtime marker
 
@@ -91,15 +103,15 @@ Expected:
 - explicit correction/repair routing.
 - interrupted answer state and `продолжи` / `продолжай` / `договори`.
 - local STOP/MUSIC/VISION routing.
-- strict acoustic interrupt candidate monitor with AEC/NS where supported.
+- acoustic interrupt candidate monitor with AEC/NS where supported.
 
 ## Real-device validation required for 0.11.3
 
-CI/emulator can prove compilation, installation, launcher startup and native voice smoke. It cannot prove Bluetooth echo behavior or actual latency on the target Realme device.
+CI/emulator cannot prove Bluetooth echo behavior or actual latency on the target Realme device.
 
 Test sequence after installing 0.11.3:
 1. Ask IMA for a long explanation.
-2. While it speaks, say a normal sentence without `стоп`, e.g. `Я живу в Дзержинске`.
+2. While it speaks, say a normal directed sentence without `стоп`, e.g. `Я живу в Дзержинске`.
 3. Verify speech audibly pauses before cloud STT has completed and the new sentence is processed.
 4. Start another answer and say only `стоп` / `подожди`.
 5. Let IMA speak with no user speech and verify TTS echo does not cause permanent interruption; if a false candidate occurs it should resume.
@@ -120,7 +132,7 @@ Inspect:
 
 ## Still not complete
 
-1. A true local speech keyword recognizer for `стоп/погоди` is still not implemented; 0.11.3 uses speculative playback pause to hide most remote-STT latency instead.
+1. A true local speech keyword recognizer for `стоп/погоди` is still not implemented; 0.11.3 uses speculative playback pause after interrupt-candidate segmentation to hide most remote-STT latency instead.
 2. Bluetooth AEC/echo rejection remains device-dependent.
 3. Exact audible interruption latency must be measured on the real device.
 4. Grok responses are still non-streaming; generation must complete before local TTS starts.
