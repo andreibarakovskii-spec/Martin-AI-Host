@@ -17,158 +17,136 @@ Read together with `docs/COMPANION_VISION.md` before continuing. Update this fil
 - Active branch: `companion-core-v1`
 - Recovery branches: `voice-orb-v1`, `companion-core-v1-baseline`
 
-## Current version — 0.11.2
+## Current version — 0.11.3
 
-- versionCode: 112
-- versionName: `0.11.2-ima-repair`
+- versionCode: 113
+- versionName: `0.11.3-voice-latency`
 - app label: `imagination`
 - diagnostic label: `imagination — тест`
-- latest implementation commit: `97eb5e39554052f49c143043315728931417b41e`
+- latest implementation/test commit before this handoff: `9e5a2ed5764ff4671f6a79ad82c55592fdac4eb3`
 - workflow: `Build imagination APK`
-- run #250 / run id `33516439563`: SUCCESS
-- artifact: `imagination-0.11.2-APK`, artifact id `9803892114`
+- run #262 / run id `33609132454` was in progress when this handoff was written; re-check before claiming success.
+- expected artifact: `imagination-0.11.3-APK`
 
-## 0.11.2 changes
+## 0.11.3 — Voice latency / natural interruption
 
-### IMA naming
+This release is based on the real-device 0.11.2 diagnostic session. The observed failure was no longer basic cancellation: once a barge-in command had been transcribed, TTS cancellation was fast, but the user still perceived a long delay because remote STT validation happened before cancellation. Natural multiword interruptions were also rejected by the old explicit-only policy, and first local-TTS audio could take several seconds on long chunks.
 
-- UI title changed from Сергей to `IMA`.
-- subtitle identifies `imagination`.
-- app labels and build artifact renamed.
-- `CompanionPrompt` defines the assistant as IMA from imagination.
-- `AttentionManager`, `ConversationDirector`, and `BargeInPolicy` recognize `IMA`, `ima`, and Russian `Има`.
-- old Сергей/Мартин wake names were removed from the new Companion Core routing path.
+### Speculative barge pause
 
-### Repair and continuation
+`MartinSpeaker` now exposes optional `pauseForBargeIn()` / `resumeAfterBargeIn()` methods.
 
-`ConversationDirector` now has a dedicated `CONTINUE` decision.
+`MartinNeuralSpeaker` implements them using `AudioTrack.pause()` / `play()` while retaining playback position.
 
-Recognized continuation commands:
-- `продолжи`
-- `продолжай`
-- `договори`
+`CompanionActivity` now pauses neural playback immediately when `ContinuousSpeechEngine` emits an interrupt audio chunk, before waiting for remote STT:
 
-Recognized repair patterns include:
-- `не так`
-- `я имел/имела в виду`
-- `я про другое`
-- `не речь, а ...`
-- `мне нужна/нужен ...`
+1. capture interrupt candidate;
+2. immediately pause current AudioTrack when supported;
+3. transcribe candidate;
+4. if rejected as echo/ambient, resume from the same playback position;
+5. if accepted, cancel the old response and route the user phrase normally.
 
-Repair text is explicitly marked for the LLM so an STT mistake such as «эпизодическая речь» can be replaced by the corrected «эпизодическая память» instead of starting an unrelated topic.
+New diagnostics:
+- `barge_speculative_pause`
+- `barge_playback_pause`
+- `barge_playback_resume`
+- `barge_rejected` includes `resumed=`
+- `barge_confirmed` includes `speculative_pause=`
 
-`CompanionActivity` stores the assistant text that was interrupted. A later `продолжай` asks the model to continue that answer without repeating its beginning.
+This should remove the remote-STT delay from the *audible* stop response on the local neural speaker. System Android TTS does not currently support position-preserving speculative pause and falls back to the old validation behavior.
 
-### Barge-in policy
+### More natural barge-in policy
 
-- strong stop words are evaluated before TTS echo similarity, so a short `стоп` is not rejected merely because the assistant itself used the word;
-- IMA name + additional speech is accepted;
-- repair phrases remain accepted;
-- ambient and likely TTS echo remain rejected.
+`BargeInPolicy` now:
+- keeps explicit stop/pause words as strongest signals;
+- accepts IMA variants including common STT form `Иму`;
+- rejects probable TTS echo before accepting generic conversational speech;
+- accepts a non-echo meaningful phrase with at least 3 words / sufficient text length as conversational barge-in;
+- keeps tiny acknowledgements such as `ага`, `угу`, `ок` from interrupting.
 
-### Tests added/updated
+Unit tests cover the real-device phrase `Я живу в Дзержинске`, IMA STT variant `Иму`, explicit stop, echo rejection and weak ambient rejection.
 
-Unit tests now cover:
-- Latin `IMA` direct address;
-- Russian `Има` direct address;
-- continuation without repeating the name;
-- dedicated `CONTINUE` route;
-- correction/repair routing;
-- IMA interruption phrases;
-- stop winning even when the current TTS contains the word `стоп`;
-- ambient and TTS echo rejection.
+### Lower TTS startup latency
 
-## Real-device findings from 0.11.1
+`SpeechChunks` was changed from long sentence buffers to latency-oriented chunks:
+- first generated chunk targets roughly <=56 characters and prefers punctuation boundaries;
+- later chunks target roughly <=110 characters;
+- full requested text is still preserved.
 
-The supplied diagnostic session showed that barge-in was not yet reliable enough to call complete. The main user-visible failure was losing/corrupting the requested term and then answering about «эпизодическая речь» instead of «эпизодическая память». Commands such as `погоди`, `стоп`, and `продолжай` were not handled consistently.
+The local Supertonic/sherpa engine keeps `numSteps=5` for voice quality but now uses 4 CPU threads instead of 2.
 
-0.11.2 addresses naming, repair semantics, continuation state, and stop-policy ordering. It does **not** yet prove reliable Bluetooth interruption; another real-device diagnostic test is required.
+`MartinNeuralSpeaker` prefetches the next chunk while the current one plays as before.
 
-## Newly requested product feature — configurable identity and personal voice
+New metric:
+- `response_ready_to_first_audio_ms` measures time from completed LLM response to TTS playback start.
 
-Add a dedicated Identity & Personal Voice system to the roadmap.
+### Runtime marker
 
-### Configurable assistant identity
+Expected:
+`companion_runtime: v1.3;brand=imagination;assistant=IMA;barge=speculative-pause;natural_interrupt=true;tts_startup_chunks=true`
 
-Required:
-- user can change assistant display name;
-- user can change wake/address name separately;
-- pronunciation hints and alternate aliases;
-- changes propagate to AttentionManager/ConversationDirector/BargeInPolicy/prompts/UI without hard-coded names.
+## 0.11.2 retained behavior
 
-### Imported personal voice / voice cloning
+- IMA / imagination user-facing naming.
+- explicit correction/repair routing.
+- interrupted answer state and `продолжи` / `продолжай` / `договори`.
+- local STOP/MUSIC/VISION routing.
+- strict acoustic interrupt candidate monitor with AEC/NS where supported.
 
-Required user flow:
-1. choose or record one or more voice samples;
-2. check recording quality;
-3. complete consent/rights confirmation;
-4. derive or create a reusable voice profile using an approved voice-cloning/speaker-conditioning engine;
-5. preview generated speech;
-6. use that profile as the assistant TTS voice;
-7. allow switching voices and permanent deletion.
+## Real-device validation required for 0.11.3
 
-Important: this is generative TTS based on the supplied voice, not playback of prerecorded phrases.
+CI/emulator can prove compilation, installation, launcher startup and native voice smoke. It cannot prove Bluetooth echo behavior or actual latency on the target Realme device.
 
-Privacy/security requirements:
-- raw voice recordings and derived voice profiles should be encrypted and local-first where practical;
-- never expose samples in diagnostics;
-- support complete deletion of source audio and derived profile;
-- do not use uploaded voice recordings to automatically infer facts/personality/memories;
-- separate voice identity from assistant factual identity/personality.
-
-### Memorial / Legacy Voice use case
-
-The requested use case includes preserving the voice of a deceased loved one so the assistant can speak with that voice. Product wording and behavior must treat this as an AI memorial/legacy voice, not as proof that the deceased person is literally alive or conscious in the assistant.
-
-Required safeguards/product behavior:
-- explicit disclosure that speech and responses are AI-generated;
-- uploader attests they have appropriate permission/rights to use the recording;
-- extra confirmation for a deceased person's voice;
-- memorial voice is separate from memory/personality cloning by default;
-- assistant does not claim to literally be the deceased person unless a separately designed memorial persona mode exists and is explicitly enabled with appropriate safeguards;
-- user can instantly switch to a neutral voice and permanently delete the memorial voice profile.
-
-Future optional extension: a clearly labeled Legacy Profile using user-supplied stories/photos/memories. This would remain an AI reconstruction based on provided material, not a continuation of consciousness.
-
-## Still not complete
-
-1. Stop detection still relies on remote STT after an audio candidate; a true local keyword interrupter is not implemented yet.
-2. Bluetooth AEC/echo rejection remains device-dependent.
-3. Exact interruption latency must be measured on the real device.
-4. Streaming LLM/TTS is not implemented.
-5. Long-term Memory Engine is not implemented.
-6. Internal legacy class names and preference key `martin` remain technical debt and should be migrated carefully later.
-7. Camera/person context is not active in CompanionActivity.
-8. Tokens/keys still need Android Keystore/encrypted storage.
-9. Assistant name is still hard-coded to IMA in 0.11.2; configurable identity is roadmap work.
-10. Imported/personal voice cloning is roadmap work and not implemented in 0.11.2.
-
-## Next real-device test — 0.11.2
-
-1. Say: `IMA, расскажи подробно, что такое эпизодическая память.`
-2. During speech say: `IMA, погоди, я про другое.`
-3. Correct it with: `Нет, не речь, а память.`
-4. Say: `продолжай` and verify that IMA continues the interrupted topic.
-5. Start another long reply and say only: `стоп`.
-6. Let IMA speak without interruption and check that it does not stop from its own speaker output.
+Test sequence after installing 0.11.3:
+1. Ask IMA for a long explanation.
+2. While it speaks, say a normal sentence without `стоп`, e.g. `Я живу в Дзержинске`.
+3. Verify speech audibly pauses before cloud STT has completed and the new sentence is processed.
+4. Start another answer and say only `стоп` / `подожди`.
+5. Let IMA speak with no user speech and verify TTS echo does not cause permanent interruption; if a false candidate occurs it should resume.
+6. Compare `response_ready_to_first_audio_ms` and `tts_synthesis_end` against the 0.11.2 log.
 7. Export diagnostics.
 
 Inspect:
-- `companion_runtime` with `brand=imagination;assistant=IMA`
-- `companion_decision` reasons `repair` and `continue_previous_answer`
-- `barge_candidate`
-- `barge_audio_ready`
-- `barge_stt_start`
+- `barge_speculative_pause`
+- `barge_playback_pause`
+- `barge_playback_resume`
 - `barge_confirmed`
 - `barge_rejected`
-- `tts_cancel_latency_ms`
+- `response_ready_to_first_audio_ms`
+- `tts_synthesis_start/end`
+- `tts_chunks`
+- `playback_start`
+- `mic_health`
+
+## Still not complete
+
+1. A true local speech keyword recognizer for `стоп/погоди` is still not implemented; 0.11.3 uses speculative playback pause to hide most remote-STT latency instead.
+2. Bluetooth AEC/echo rejection remains device-dependent.
+3. Exact audible interruption latency must be measured on the real device.
+4. Grok responses are still non-streaming; generation must complete before local TTS starts.
+5. Local TTS remains whole-chunk inference, not sample-streaming neural synthesis.
+6. Long-term Memory Engine is not implemented.
+7. Camera/person context is not active in CompanionActivity.
+8. Tokens/keys still need Android Keystore/encrypted storage.
+9. Assistant name is still hard-coded to IMA; configurable identity is roadmap work.
+10. Imported/personal voice cloning is roadmap work.
+
+## Future configurable identity / Personal Voice
+
+Required:
+- change display and wake names;
+- pronunciation hints/aliases;
+- imported voice recordings -> reusable generative TTS profile;
+- encrypted local-first source/profile storage where practical;
+- consent/rights confirmation and complete deletion;
+- clearly disclosed Memorial / Legacy Voice mode for voices of deceased loved ones, kept separate from factual personality/memory cloning by default.
 
 ## Next development priority
 
-After the 0.11.2 real-device log:
-1. tune interrupt capture/AEC thresholds;
-2. add a local fast stop/pause keyword detector if remote STT remains slow;
-3. add end-of-user-speech to first-audio latency metrics and streaming response/TTS;
-4. begin Memory Engine v1;
-5. refactor hard-coded IMA naming into a persistent AssistantIdentity profile;
-6. evaluate/implement a consent-aware Personal Voice pipeline and memorial/legacy voice mode.
+After the 0.11.3 real-device log:
+1. tune false-positive speculative pauses and echo threshold from actual Bluetooth data;
+2. decide whether a local stop/wake recognizer is still needed after measuring perceived latency;
+3. implement streaming LLM output into incremental TTS so synthesis can begin before the full answer is generated;
+4. then begin Memory Engine v1;
+5. refactor hard-coded IMA naming into persistent `AssistantIdentity` profile;
+6. evaluate/implement consent-aware Personal Voice pipeline.
