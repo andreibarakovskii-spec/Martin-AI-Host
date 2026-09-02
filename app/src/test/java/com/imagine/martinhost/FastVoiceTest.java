@@ -13,9 +13,18 @@ public class FastVoiceTest {
   String text=FastVoiceEngine.normalizeText("С днём рождения! Йога, ёж.");
   assertEquals(text,FastVoiceEngine.normalizeText(text));
  }
- @Test public void shortReplyUsesOneBufferWithoutDroppingPunctuation(){
+ @Test public void shortReplyKeepsNaturalSentenceChunks(){
   String text="Привет, Андрей! Как настроение?";
-  assertEquals(Collections.singletonList(text),SpeechChunks.split(text));
+  List<String> parts=SpeechChunks.split(text);
+  assertEquals(Arrays.asList("Привет, Андрей!","Как настроение?"),parts);
+  assertEquals(text,String.join(" ",parts));
+ }
+ @Test public void firstLongChunkIsLatencyBoundedWithoutDroppingText(){
+  String text="Эпизодическая память хранит события нашей жизни, связанные с конкретным временем, местом и личным контекстом.";
+  List<String> parts=SpeechChunks.split(text);
+  assertTrue(parts.size()>1);
+  assertTrue(parts.get(0).length()<=56);
+  assertEquals(text,String.join(" ",parts));
  }
  @Test public void voiceIdsFollowUpstreamSortedStyles(){
   for(int i=1;i<=5;i++){assertEquals(i-1,FastVoiceEngine.speakerId("F"+i));assertEquals(i+4,FastVoiceEngine.speakerId("M"+i));}
@@ -23,7 +32,7 @@ public class FastVoiceTest {
  }
  @Test public void chunksPreserveAllWords(){
   String text="Привет! "+String.join(" ",Collections.nCopies(90,"именинница"))+". С праздником!";
-  List<String> parts=SpeechChunks.split(text);assertEquals(text,String.join(" ",parts));assertEquals("Привет!",parts.get(0));for(String p:parts)assertTrue(p.length()<=160);
+  List<String> parts=SpeechChunks.split(text);assertEquals(text,String.join(" ",parts));assertEquals("Привет!",parts.get(0));for(String p:parts)assertTrue(p.length()<=110);
   assertTrue(SpeechChunks.split("  ").isEmpty());
  }
  @Test public void rejectArchiveTraversal()throws Exception{
