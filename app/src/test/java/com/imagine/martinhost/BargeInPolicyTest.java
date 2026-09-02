@@ -9,6 +9,11 @@ public class BargeInPolicyTest {
     @Test public void explicitStopInterrupts(){assertTrue(p.evaluate("Стоп, погоди", "Сейчас я расскажу длинную историю").accepted);}
     @Test public void assistantNamePlusSpeechInterrupts(){assertTrue(p.evaluate("IMA, я про другое", "Сейчас расскажу про погоду").accepted);}
     @Test public void russianNamePlusSpeechInterrupts(){assertTrue(p.evaluate("Има, подожди", "Сейчас расскажу про погоду").accepted);}
+    @Test public void commonSttVariantOfImaInterrupts(){assertTrue(p.evaluate("Иму привет, я хотел спросить", "Продолжаю рассказ").accepted);}
+    @Test public void naturalMultiwordSpeechInterrupts(){
+        BargeInPolicy.Result r=p.evaluate("Я живу в Дзержинске", "Сейчас расскажу про эпизодическую память");
+        assertTrue(r.accepted);assertEquals("meaningful_human_speech",r.reason);
+    }
     @Test public void weakAmbientWordDoesNotInterrupt(){assertFalse(p.evaluate("ага", "Продолжаю ответ").accepted);}
     @Test public void likelyTtsEchoIsRejected(){
         BargeInPolicy.Result r=p.evaluate("Ситуация развивается довольно быстро", "Ситуация развивается довольно быстро, поэтому продолжим");
