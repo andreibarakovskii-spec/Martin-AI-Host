@@ -36,6 +36,10 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
    finally{preparing.set(false)}
   }
  }
+ override fun preArm(){
+  DiagnosticRecorder.get(app).event("tts_prearm","ready=$ready;engine_hot=${engine!=null};generation=${generation.get()}")
+  if(!ready)prepare()
+ }
  private suspend fun ensureVoice(requested:String){
   val voice=LocalVoiceProfiles.valid(requested)
   if(engine!=null){loadedVoice=voice;return}
