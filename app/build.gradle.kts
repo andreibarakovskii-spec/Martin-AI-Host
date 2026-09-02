@@ -39,8 +39,8 @@ android {
         minSdk = 31
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 113
-        versionName = "0.11.3-voice-latency"
+        versionCode = 114
+        versionName = "0.11.4-streaming-voice"
     }
     System.getenv("MARTIN_DEBUG_KEYSTORE")?.let { keyPath ->
         signingConfigs.getByName("debug") { storeFile = file(keyPath) }
