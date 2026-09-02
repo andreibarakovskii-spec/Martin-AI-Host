@@ -15,10 +15,8 @@ class FastVoiceEngine(dir:File):AutoCloseable {
    ttsJson=File(dir,"tts.json").absolutePath,
    unicodeIndexer=File(dir,"unicode_indexer.bin").absolutePath,
    voiceStyle=File(dir,"voice.bin").absolutePath),
-  numThreads=2,debug=false,provider="cpu")))
+  numThreads=4,debug=false,provider="cpu")))
  init {if(tts.numSpeakers()!=10){tts.release();throw IllegalStateException("Неверное число голосов")}}
- // Sherpa JNI looks up invoke(float[]): java.lang.Integer by its concrete signature.
- // Kotlin 2.x indy lambdas only expose the erased invoke(Object), which aborts JNI.
  class NativeCallback(private val cancelled:BooleanSupplier):(FloatArray)->Int {
   override fun invoke(samples:FloatArray):Int=if(cancelled.asBoolean)0 else 1
  }
@@ -34,10 +32,7 @@ class FastVoiceEngine(dir:File):AutoCloseable {
  override fun close(){tts.release()}
  companion object {
   const val STEPS=5
-  // Match the upstream Python frontend. The bundled C++ frontend only decomposes
-  // Latin characters, leaving Russian ё/й incompatible with the model indexer.
   @JvmStatic fun normalizeText(text:String):String = java.text.Normalizer.normalize(text,java.text.Normalizer.Form.NFKD)
-  // Upstream generate_voices_bin.py sorts F1..F5,M1..M5.
   @JvmStatic fun speakerId(voice:String):Int {val v=LocalVoiceProfiles.valid(voice);return (if(v[0]=='M')5 else 0)+(v[1]-'1')}
  }
 }
