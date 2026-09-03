@@ -4,19 +4,16 @@ import com.k2fsa.sherpa.onnx.*
 import java.io.File
 import java.util.function.BooleanSupplier
 
-/** Official upstream Android AAR; model stays hot and can emit PCM while inference is still running. */
+/** App-owned Russian Piper/VITS voice; independent of vendor Android TTS. */
 class FastVoiceEngine(dir:File):AutoCloseable {
  private val tts=OfflineTts(config=OfflineTtsConfig(model=OfflineTtsModelConfig(
-  supertonic=OfflineTtsSupertonicModelConfig(
-   durationPredictor=File(dir,"duration_predictor.int8.onnx").absolutePath,
-   textEncoder=File(dir,"text_encoder.int8.onnx").absolutePath,
-   vectorEstimator=File(dir,"vector_estimator.int8.onnx").absolutePath,
-   vocoder=File(dir,"vocoder.int8.onnx").absolutePath,
-   ttsJson=File(dir,"tts.json").absolutePath,
-   unicodeIndexer=File(dir,"unicode_indexer.bin").absolutePath,
-   voiceStyle=File(dir,"voice.bin").absolutePath),
-  numThreads=4,debug=false,provider="cpu")))
- init {if(tts.numSpeakers()!=10){tts.release();throw IllegalStateException("Неверное число голосов")}}
+  vits=OfflineTtsVitsModelConfig(
+   model=File(dir,FastVoiceModel.MODEL).absolutePath,
+   tokens=File(dir,"tokens.txt").absolutePath,
+   dataDir=File(dir,"espeak-ng-data").absolutePath,
+   noiseScale=.667f,noiseScaleW=.8f,lengthScale=1f),
+  numThreads=2,debug=false,provider="cpu")))
+ init {if(tts.numSpeakers()!=1){tts.release();throw IllegalStateException("Неверное число голосов Piper")}}
  class NativeCallback(private val cancelled:BooleanSupplier):(FloatArray)->Int {
   override fun invoke(samples:FloatArray):Int=if(cancelled.asBoolean)0 else 1
  }
@@ -31,25 +28,20 @@ class FastVoiceEngine(dir:File):AutoCloseable {
  class Pcm(@JvmField val pcm16:ByteArray,@JvmField val sampleRate:Int)
  fun sampleRate():Int=tts.sampleRate()
  fun synthesize(text:String,voice:String,speed:Float,cancelled:BooleanSupplier):Pcm {
-  val config=generationConfig(voice,speed)
-  val audio=tts.generateWithConfigAndCallback(normalizeText(text),config,NativeCallback(cancelled))
+  val audio=tts.generateWithConfigAndCallback(normalizeText(text),generationConfig(speed),NativeCallback(cancelled))
   if(cancelled.asBoolean)return Pcm(ByteArray(0),tts.sampleRate())
   return Pcm(toPcm16(audio.samples),audio.sampleRate)
  }
- /** Emits PCM chunks as soon as sherpa produces them. The returned final audio is intentionally ignored. */
  fun synthesizeStreaming(text:String,voice:String,speed:Float,cancelled:BooleanSupplier,sink:(ByteArray)->Boolean):Int {
   val rate=tts.sampleRate()
-  tts.generateWithConfigAndCallback(normalizeText(text),generationConfig(voice,speed),StreamingCallback(cancelled,sink))
+  tts.generateWithConfigAndCallback(normalizeText(text),generationConfig(speed),StreamingCallback(cancelled,sink))
   return rate
  }
- private fun generationConfig(voice:String,speed:Float)=GenerationConfig(
-  sid=speakerId(voice),speed=speed,numSteps=STEPS,silenceScale=.16f,
-  extra=mapOf("lang" to "ru", "silence_duration" to "0.16"))
+ private fun generationConfig(speed:Float)=GenerationConfig(sid=0,speed=speed,silenceScale=.12f)
  override fun close(){tts.release()}
  companion object {
-  const val STEPS=5
-  @JvmStatic fun normalizeText(text:String):String = java.text.Normalizer.normalize(text,java.text.Normalizer.Form.NFKD)
-  @JvmStatic fun speakerId(voice:String):Int {val v=LocalVoiceProfiles.valid(voice);return (if(v[0]=='M')5 else 0)+(v[1]-'1')}
+  @JvmStatic fun normalizeText(text:String):String = java.text.Normalizer.normalize(text,java.text.Normalizer.Form.NFKC)
+  @JvmStatic fun speakerId(voice:String):Int=0
   @JvmStatic fun toPcm16(samples:FloatArray):ByteArray {
    val bytes=ByteArray(samples.size*2)
    for(i in samples.indices){val v=(samples[i].coerceIn(-1f,1f)*32767).toInt();bytes[i*2]=v.toByte();bytes[i*2+1]=(v shr 8).toByte()}
