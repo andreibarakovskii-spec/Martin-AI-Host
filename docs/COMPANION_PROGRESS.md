@@ -1,6 +1,6 @@
 # imagination — Development Progress / Handoff
 
-Updated: 2026-09-02
+Updated: 2026-09-03
 
 Read together with `docs/COMPANION_VISION.md` before continuing. Update this file after every meaningful implementation/test batch.
 
@@ -8,127 +8,82 @@ Read together with `docs/COMPANION_VISION.md` before continuing. Update this fil
 
 - Full product/platform name: **imagination**
 - Current default assistant name/wake name: **IMA** (Russian pronunciation: «Има»)
-- Legacy Martin/Sergey names may remain in internal stable classes while audio is being stabilized.
-- Future requirement: display name and wake/address name must be user-configurable.
+- Legacy Martin names may remain in stable internal classes while audio is being stabilized.
+- Future display name and wake/address name must be user-configurable.
 
 ## Repository
 
 - Repository: `andreibarakovskii-spec/Martin-AI-Host`
 - Active branch: `companion-core-v1`
-- Recovery branches: `voice-orb-v1`, `companion-core-v1-baseline`
 
-## Current version — 0.11.4 Streaming Voice
+## Current tested voice build — 0.12.0 IMA Voice / Piper
 
-- versionCode: 114
-- versionName: `0.11.4-streaming-voice`
-- app label: `imagination`
-- diagnostic label: `imagination — тест`
-- tested HEAD: `e7363f72aa879c9e7d77a7c1b4f7917e8129f96c`
+- versionCode: 120
+- versionName: `0.12.0-ima-voice-piper`
+- tested HEAD: `3f260f1fb18cb24640f9b03a55ce5e5a983da46e`
 - workflow: `Build imagination APK`
-- run #284 / run id `33616208531`
-- job id `100202509576`
+- run #292 / run id `33776451303`
+- job id `100719243546`
 - result: COMPLETED / SUCCESS
 - unit tests/build: success
 - APK integrity: success
 - Android 35 emulator launch: success
-- native FastVoiceSmokeTest: success, including real sherpa streaming callback verification
-- APK artifact: `imagination-0.11.4-APK`, artifact id `9841098856`, archive digest `sha256:144f62c9c557339021c182878ab72657b5ff9a5a3112a7f79e70d29413d49067`
-- QA artifact: `imagination-0.11.4-QA`, artifact id `9841219486`
-- extracted APK SHA-256: `39531480c6fefacc1f3bb042d2b485c86475240d18b8cb61688b9bc2671060f2`
+- native Piper/VITS FastVoiceSmokeTest: success
+- APK artifact: `imagination-0.12.0-APK`, artifact id `9901867875`, archive digest `sha256:be590b194844dc8709e837f6272fb0dd318b0b35a828c2cefd5d6e9bd1162dfd`
+- QA artifact: `imagination-0.12.0-QA`, artifact id `9901979902`
+- extracted APK SHA-256: `a520658abcc44ec5765e6cb4d1e23f74d52471151da05e918bc1b4d0e3e56be7`
 
-IMPORTANT: CI/emulator proves build/install/launch and native streaming TTS execution. It does not prove real Bluetooth audible latency or echo behavior on the target Realme device.
+IMPORTANT: emulator timing is not a Realme/tablet benchmark. Real-device Bluetooth latency, thermals and pronunciation still require target-device diagnostics.
 
-## 0.11.4 — what changed
+## 0.12.0 — app-owned cross-device voice
 
-### 1. Hot TTS + speech-start pre-arm
+The production voice path no longer selects Android/vendor TTS. `MartinSpeakerFactory` always creates the app-owned local neural speaker, so Realme/Samsung/Xiaomi/tablet vendor voices cannot change IMA's production voice.
 
-`MartinSpeaker` now has `preArm()`.
+Supertonic was replaced by Russian Piper/VITS `vits-piper-ru_RU-ruslan-medium` through sherpa-onnx 1.13.2. The model package is verified by SHA-256 before installation and stored locally under `ima-voice-v2` after the first download. Required assets are the ONNX model, `tokens.txt`, and `espeak-ng-data`.
 
-`CompanionActivity` calls it as soon as VAD reports the beginning of user speech, before the final STT transcript exists. The local neural engine normally remains loaded in RAM from app startup, so pre-arm does not reload the model; it verifies/maintains the hot voice path and records diagnostics.
+Model package:
+- official sherpa model asset: `vits-piper-ru_RU-ruslan-medium.tar.bz2`
+- download size: about 67 MB
+- archive SHA-256: `0690b1cad01f86e8db9ba988af24898bdc1af774e23cb2e46b9c730269b6fd83`
+- output sample rate: 22050 Hz
+- single consistent Russian voice
 
-Diagnostics:
-- `user_speech_prearm`
-- `tts_prearm`
+The existing pre-arm, Grok SSE streaming, generation cancellation and PCM-to-AudioTrack pipeline are retained.
 
-Barge-in also pre-arms the next response path while the current playback is being interrupted.
+## Native benchmark from run #292
 
-### 2. Grok/xAI/Groq response streaming
+Android 35 x86_64 emulator, 2 cores; not a handset benchmark:
+- Piper full synthesis, `Андрей, с днём рождения!`: **769 ms**, 39,168 samples at 22.05 kHz.
+- Piper callback phrase, `Как настроение?`: **359 ms to first callback**, 360 ms total, 44,032 PCM bytes at 22.05 kHz.
+- native test result: `OK (1 test)`.
 
-`GrokClient` now supports OpenAI-compatible SSE streaming via `replyStreaming()`.
+This is substantially below the multi-second Supertonic startup observed on the prior target-device diagnostic, but the actual Realme result must be measured before claiming the same latency on ARM hardware.
 
-It records:
-- `ai_request_start ... stream=true`
-- `ai_first_delta_ms`
-- final `ai_result`
+## Retained 0.11.4 pipeline
 
-`CompanionActivity` no longer needs to wait for the complete LLM response before beginning speech. It extracts the first finished sentence, or a bounded natural prefix if the model has not emitted punctuation yet, and sends that prefix to TTS immediately.
+- TTS pre-arm begins when user speech starts.
+- Grok/xAI/Groq response uses SSE streaming.
+- the first finished sentence/bounded prefix can begin voice output before the complete LLM answer.
+- sherpa callback PCM is written to `AudioTrack`.
+- barge-in uses speculative playback pause and generation-based cancellation.
+- ConversationWorkingMemory / current-topic groundwork remains on the branch.
 
-When the full response arrives, the already-spoken prefix is removed and only the remainder is spoken. Unit tests cover first-sentence extraction, bounded early prefixes and no-repeat remainder splitting.
+## Real-device validation for 0.12.0
 
-Diagnostics:
-- `ai_early_speech`
-- `companion_ai_done ... stream=true`
+1. Install 0.12.0 and allow the one-time ~67 MB IMA voice model download/install.
+2. Speak for several turns and verify the same embedded voice is used regardless of Android system TTS settings.
+3. Measure end of user speech -> STT -> `ai_first_delta_ms` -> `ai_early_speech` -> `tts_first_pcm` -> `playback_start`.
+4. Interrupt mid-answer with a normal new sentence and with `стоп`/`подожди`.
+5. Check pronunciation, intelligibility, naturalness, CPU temperature and any gaps between chunks.
+6. Export diagnostics.
 
-### 3. Real PCM streaming from sherpa/Supertonic
+## Known limitations / next priorities
 
-The previous sherpa callback received partial `FloatArray samples` but discarded them and used the callback only for cancellation.
-
-`FastVoiceEngine.synthesizeStreaming()` now converts every non-empty callback sample buffer to PCM16 and sends it to the playback sink immediately while inference is still running.
-
-`MartinNeuralSpeaker` keeps one hot model session and one `AudioTrack` for the response. It starts playback on the first PCM callback rather than waiting for a complete generated WAV.
-
-Diagnostics:
-- `tts_first_pcm`
-- `tts_pcm_push`
-- `tts_synthesis_start/end`
-- `playback_start/end`
-
-The Android instrumentation smoke test explicitly asserts that real sherpa native inference invokes the streaming callback with non-empty PCM data. Run #284 passed.
-
-### 4. Faster cancellation after interruption
-
-The existing generation token is checked from the streaming PCM callback. When the user interrupts, old inference can stop at a callback boundary instead of needing to finish an entire WAV/chunk before the next request can proceed.
-
-A second full ONNX TTS session was deliberately not added yet. First measure 0.11.4 on the real device; duplicating the model may add hundreds of MB of memory and thermal throttling without being necessary once streaming cancellation works.
-
-### Runtime marker
-
-Expected:
-`companion_runtime: v1.4;brand=imagination;assistant=IMA;llm_stream=true;tts_prearm=true;pcm_stream=true;barge=speculative-pause`
-
-## Retained conversation behavior work
-
-The branch also contains the new `ConversationWorkingMemory` / human-like conversation direction work: current topic, recent relevant turns, ambient-vs-conversation handling and groundwork for multi-person dialogue. Reliable speaker identity/diarization is still not implemented and must not be faked.
-
-## Real-device validation for 0.11.4
-
-On the target phone, test:
-1. Start talking and verify `user_speech_prearm` appears near speech onset.
-2. Ask a normal 2–3 sentence question; measure end of user speech -> `ai_first_delta_ms` -> `ai_early_speech` -> `tts_first_pcm` -> `playback_start`.
-3. Compare perceived first-audio latency to 0.11.3.
-4. Ask for a long answer and verify the first sentence begins before the complete Grok response is finished.
-5. Interrupt mid-answer with a normal new sentence and with `стоп`/`подожди`; verify old PCM stops and the new response starts without waiting for the old inference to finish.
-6. Verify no repeated first sentence when the remainder starts.
-7. Export diagnostics.
-
-## Still not complete
-
-1. Real Bluetooth first-audio latency for 0.11.4 is not measured yet.
-2. Bluetooth AEC/self-echo remains device-dependent.
-3. Streaming LLM currently starts TTS on a complete first sentence or bounded prefix, not token-by-token phoneme synthesis.
-4. There is still one heavy ONNX TTS session; add a second worker only if real-device logs prove cancellation still blocks new inference materially.
-5. A true local keyword recognizer for `стоп/погоди` is not yet implemented.
-6. Long-term Memory Engine is not implemented.
-7. Speaker diarization / durable voice identity is not implemented.
-8. Camera/person context is not active in CompanionActivity.
-9. Tokens/keys still need Android Keystore/encrypted storage.
-10. Configurable assistant identity and Personal Voice cloning remain roadmap work.
-
-## Next priorities
-
-1. Analyze 0.11.4 real-device diagnostic timing and audible behavior.
-2. If first PCM is still slow, benchmark smaller Supertonic model/settings or a different streaming TTS backend without sacrificing voice quality.
-3. If interruption still waits on inference cancellation, prototype a two-session TTS pool and measure RAM/temperature/latency before keeping it.
-4. Continue Conversation Behavior Engine: semantic topic tracking, `ShouldSpeak`, group-dialogue working memory and speaker diarization.
-5. Begin durable Memory Engine v1 after voice turn-taking is sufficiently natural.
-6. Implement persistent `AssistantIdentity`, then consent-aware Personal Voice / Legacy Voice.
+1. Real-device first-PCM/audio latency for Piper is not measured yet.
+2. Piper `ruslan-medium` is one male Russian voice; richer emotion/voice choice still needs a later voice layer or Personal Voice pipeline.
+3. For short phrases sherpa may emit one callback rather than many tiny PCM callbacks; low latency currently comes primarily from faster VITS inference.
+4. First model installation needs network access; after installation inference is local.
+5. Bluetooth AEC/self-echo remains device-dependent.
+6. The streamed LLM answer still needs a unified appendable TTS response session so early speech and remainder never compete as separate `speak()` generations.
+7. Long-term Memory Engine, reliable speaker diarization, active camera person context, encrypted key storage, configurable AssistantIdentity and Personal/Legacy Voice remain incomplete.
+8. If ARM latency is still too high, benchmark the official INT8 variant of the same Piper voice before changing architecture again.
