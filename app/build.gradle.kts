@@ -39,8 +39,8 @@ android {
         minSdk = 31
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 114
-        versionName = "0.11.4-streaming-voice"
+        versionCode = 120
+        versionName = "0.12.0-ima-voice-piper"
     }
     System.getenv("MARTIN_DEBUG_KEYSTORE")?.let { keyPath ->
         signingConfigs.getByName("debug") { storeFile = file(keyPath) }
@@ -49,14 +49,9 @@ android {
         assets.exclude("martin*")
         res.exclude("drawable-nodpi/*.jpg")
     }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
-    androidResources {
-        ignoreAssetsPattern = "!.svn:!.git:!.gitignore:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
-    }
+    androidResources { ignoreAssetsPattern = "!.svn:!.git:!.gitignore:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~" }
 }
 
 dependencies {
