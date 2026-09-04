@@ -43,7 +43,7 @@ jobs:
           sha256sum "$APK" > apk-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: imagination-0.13.0-APK
+          name: imagination-0.12.1-APK
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             apk-sha256.txt
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: imagination-0.13.0-QA
+          name: imagination-0.12.1-QA
           path: |
             native-test.txt
             companion-core-screen.png
