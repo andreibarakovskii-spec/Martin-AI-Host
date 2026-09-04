@@ -85,4 +85,42 @@ public class ConversationDirectorTest {
         ConversationDirector d = new ConversationDirector();
         assertEquals(ConversationDirector.Kind.VISION, d.decide("IMA, посмотри что у меня в руках", 1000).kind);
     }
+
+    @Test public void unfinishedSentenceWaitsAndStitchesNextChunk() {
+        ConversationDirector d = new ConversationDirector();
+        ConversationDirector.Decision first=d.decide("Има, я хотел",1000);
+        assertEquals(ConversationDirector.Kind.IGNORE,first.kind);
+        assertEquals("user_turn_incomplete_wait",first.reason);
+        assertTrue(d.hasPendingUserTurn());
+
+        ConversationDirector.Decision second=d.decide("спросить тебя про память",2200);
+        assertEquals(ConversationDirector.Kind.RESPOND,second.kind);
+        assertTrue(second.text.startsWith("я хотел спросить тебя про память"));
+        assertFalse(d.hasPendingUserTurn());
+    }
+
+    @Test public void trailingConnectorWaitsForRestOfThought() {
+        ConversationDirector d = new ConversationDirector();
+        ConversationDirector.Decision first=d.decide("Има, объясни мне это потому что",1000);
+        assertEquals("user_turn_incomplete_wait",first.reason);
+        ConversationDirector.Decision second=d.decide("я не понял прошлый ответ",2000);
+        assertEquals(ConversationDirector.Kind.RESPOND,second.kind);
+        assertTrue(second.text.contains("потому что я не понял прошлый ответ"));
+    }
+
+    @Test public void continuationAfterEarlyAssistantStartReconstructsUserTurn() {
+        ConversationDirector d = new ConversationDirector();
+        ConversationDirector.Decision first=d.decide("Има, расскажи про новый голос",1000);
+        assertEquals(ConversationDirector.Kind.RESPOND,first.kind);
+        ConversationDirector.Decision second=d.decide("и еще про интонации",3500);
+        assertEquals(ConversationDirector.Kind.RESPOND,second.kind);
+        assertTrue(second.text.startsWith("расскажи про новый голос и еще про интонации"));
+    }
+
+    @Test public void completeSentenceDoesNotGetHeldOpen() {
+        ConversationDirector d = new ConversationDirector();
+        ConversationDirector.Decision r=d.decide("Има, расскажи про память",1000);
+        assertEquals(ConversationDirector.Kind.RESPOND,r.kind);
+        assertFalse(d.hasPendingUserTurn());
+    }
 }
