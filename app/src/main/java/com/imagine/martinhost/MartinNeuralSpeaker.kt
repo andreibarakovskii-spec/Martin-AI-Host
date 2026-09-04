@@ -185,7 +185,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
- override fun stop(){bargePaused=false;pendingSpeak.set(0);DiagnosticRecorder.get(app).event("tts_stop_requested","stream=true;ima_voice=v1");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
+ override fun stop(){bargePaused=false;DiagnosticRecorder.get(app).event("tts_stop_requested","stream=true;ima_voice=v1");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
  override fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
  override fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
 }
