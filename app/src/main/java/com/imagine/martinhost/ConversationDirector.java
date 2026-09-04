@@ -89,6 +89,7 @@ public final class ConversationDirector {
             pendingUserTurnAtMs = nowMs;
             conversationActive = true;
             lastDirectedAtMs = nowMs;
+            lastDirectedRaw = raw;
             return new Decision(Kind.IGNORE, "", "user_turn_incomplete_wait", a);
         }
 
@@ -127,18 +128,27 @@ public final class ConversationDirector {
 
     static boolean looksStronglyIncomplete(String raw) {
         if (raw == null) return false;
+        String trimmed=raw.trim();
+        // Preserve punctuation evidence before normalization. Whisper often emits an ellipsis or
+        // dash when the speaker trails off; that should be treated as a held conversational turn.
+        if (trimmed.endsWith("...") || trimmed.endsWith("…") || trimmed.endsWith("—") || trimmed.endsWith("-")) return true;
+
         String n = AttentionManager.normalize(stripAssistantName(raw));
         if (n.isBlank()) return false;
         // Strong grammatical tails: connectors/prepositions that normally require a continuation.
         if (n.matches(".*\\b(и|а|но|или|если|когда|пока|хотя|чтобы|потому что|так как|который|которая|которые|которое|где|куда|откуда|зачем|почему|в|на|к|с|со|из|от|до|для|без|про|о|об|по|у|через|между|перед|после)$")) return true;
         // Common unfinished Russian speech constructions.
         if (n.matches(".*\\b(я хотел|я хотела|я хочу|мне нужно|мне надо|можешь|можешь ли|скажи мне|расскажи мне|дело в том|смысл в том|проблема в том)$")) return true;
+        // Real-device speech often loses punctuation. These short trailing predicates are very
+        // frequently a lead-in rather than a complete thought (e.g. «Ты уже начинаешь...»).
+        if (n.matches("^(ты|вы) .{0,48}\\b(начинаешь|начинаете|пытаешься|пытаетесь|хочешь|хотите|будешь|будете|говоришь|говорите|делаешь|делаете)$")) return true;
+        if (n.matches("^я .{0,48}\\b(начинаю|пытаюсь|хочу|буду|говорю|делаю)$")) return true;
         return false;
     }
 
     static boolean looksLikeContinuationStart(String n) {
         if (n == null || n.isBlank()) return false;
-        return n.matches("^(и еще|а еще|но|потому что|так как|то есть|просто|который|которая|которые|которое|я хотел сказать|я хотела сказать|в смысле|точнее)\\b.*");
+        return n.matches("^(и еще|и ещё|а еще|а ещё|но|потому что|так как|то есть|просто|который|которая|которые|которое|я хотел сказать|я хотела сказать|я не договорил|я не договорила|в смысле|точнее)\\b.*");
     }
 
     static String joinUserChunks(String first, String second) {
