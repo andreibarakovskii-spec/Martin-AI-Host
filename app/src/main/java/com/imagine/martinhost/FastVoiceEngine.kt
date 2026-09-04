@@ -4,7 +4,7 @@ import com.k2fsa.sherpa.onnx.*
 import java.io.File
 import java.util.function.BooleanSupplier
 
-/** App-owned Russian Piper/VITS voice; independent of vendor Android TTS. */
+/** App-owned Russian Piper/VITS backend; prosody is planned above this layer by IMA Voice. */
 class FastVoiceEngine(dir:File):AutoCloseable {
  private val tts=OfflineTts(config=OfflineTtsConfig(model=OfflineTtsModelConfig(
   vits=OfflineTtsVitsModelConfig(
@@ -28,16 +28,21 @@ class FastVoiceEngine(dir:File):AutoCloseable {
  class Pcm(@JvmField val pcm16:ByteArray,@JvmField val sampleRate:Int)
  fun sampleRate():Int=tts.sampleRate()
  fun synthesize(text:String,voice:String,speed:Float,cancelled:BooleanSupplier):Pcm {
-  val audio=tts.generateWithConfigAndCallback(normalizeText(text),generationConfig(speed),NativeCallback(cancelled))
+  val audio=tts.generateWithConfigAndCallback(normalizeText(text),generationConfig(speed,.12f),NativeCallback(cancelled))
   if(cancelled.asBoolean)return Pcm(ByteArray(0),tts.sampleRate())
   return Pcm(toPcm16(audio.samples),audio.sampleRate)
  }
- fun synthesizeStreaming(text:String,voice:String,speed:Float,cancelled:BooleanSupplier,sink:(ByteArray)->Boolean):Int {
+ fun synthesizeStreaming(text:String,voice:String,speed:Float,cancelled:BooleanSupplier,sink:(ByteArray)->Boolean):Int =
+  synthesizeStreaming(text,voice,speed,.12f,cancelled,sink)
+ fun synthesizeStreaming(text:String,voice:String,speed:Float,silenceScale:Float,cancelled:BooleanSupplier,sink:(ByteArray)->Boolean):Int {
   val rate=tts.sampleRate()
-  tts.generateWithConfigAndCallback(normalizeText(text),generationConfig(speed),StreamingCallback(cancelled,sink))
+  tts.generateWithConfigAndCallback(normalizeText(text),generationConfig(speed,silenceScale),StreamingCallback(cancelled,sink))
   return rate
  }
- private fun generationConfig(speed:Float)=GenerationConfig(sid=0,speed=speed,silenceScale=.12f)
+ private fun generationConfig(speed:Float,silenceScale:Float)=GenerationConfig(
+  sid=0,
+  speed=speed.coerceIn(.85f,1.15f),
+  silenceScale=silenceScale.coerceIn(.06f,.22f))
  override fun close(){tts.release()}
  companion object {
   @JvmStatic fun normalizeText(text:String):String = java.text.Normalizer.normalize(text,java.text.Normalizer.Form.NFKC)

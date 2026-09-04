@@ -8,20 +8,20 @@ import java.util.function.Consumer;
 import org.apache.commons.compress.archivers.tar.*;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 
-/** Verified staged install for the app-owned Russian Piper/VITS voice. */
+/** Verified staged install for IMA's app-owned Russian female Piper/VITS voice. */
 public final class FastVoiceModel {
- static final String NAME="vits-piper-ru_RU-ruslan-medium";
+ static final String NAME="vits-piper-ru_RU-irina-medium";
  static final String URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"+NAME+".tar.bz2";
- static final String SHA="0690b1cad01f86e8db9ba988af24898bdc1af774e23cb2e46b9c730269b6fd83";
- static final String MODEL="ru_RU-ruslan-medium.onnx";
+ static final String SHA="1fc0f54e5e084fe287c07909f2f6e0ba6d857864cf800e3ab80286a4e8233008";
+ static final String MODEL="ru_RU-irina-medium.onnx";
  public static synchronized File ensure(File files,BooleanSupplier cancelled,Consumer<String> progress)throws Exception{
-  File base=new File(files,"ima-voice-v2"),target=new File(base,NAME);
+  File base=new File(files,"ima-voice-v3"),target=new File(base,NAME);
   if(installed(target))return target;
   if(!base.isDirectory()&&!base.mkdirs())throw new IOException("Нет места для голосовой модели");
   File archive=new File(base,"download.part"),stage=new File(base,"staging");
   remove(stage);if(!stage.mkdirs()&&!stage.isDirectory())throw new IOException("Не удалось создать временный каталог");
   try{
-   check(cancelled);progress.accept("Загрузка голоса IMA: около 67 МБ");
+   check(cancelled);progress.accept("Загрузка женского голоса IMA: около 67 МБ");
    HttpURLConnection c=(HttpURLConnection)new URL(URL).openConnection();
    c.setConnectTimeout(15000);c.setReadTimeout(20000);c.setInstanceFollowRedirects(true);
    MessageDigest digest=MessageDigest.getInstance("SHA-256");
