@@ -17,17 +17,18 @@ public final class BargeInPolicy {
         if (n.isBlank()) return new Result(false,"blank");
 
         boolean stop = n.matches(".*\\b(стоп|погоди|подожди|стой|замолчи|хватит|перебью|пауза)\\b.*");
-        boolean repair = n.matches(".*\\b(нет не так|я про другое|я имел в виду|я имела в виду|не речь а|мне нужна|мне нужен)\\b.*");
-        boolean name = hasWord(n,"има") || hasWord(n,"иму") || hasWord(n,"имаа") || hasWord(n,"ima") || hasWord(n,"ассистент");
+        boolean repair = n.matches(".*\\b(нет не так|я про другое|я имел в виду|я имела в виду|не речь а|мне нужна|мне нужен|я просил|я просила)\\b.*");
+        boolean name = ImaWakeMatcher.mentionsIma(n) || hasWord(n,"ассистент");
 
         if (stop) return new Result(true,"stop_word");
         if (looksLikeEcho(n, norm(currentAssistantSpeech))) return new Result(false,"similar_to_tts");
-        if (name && tokenCount(n)>=2) return new Result(true,"assistant_name_plus_speech");
+        // A short wake/name utterance during active TTS is itself a directed interruption.
+        if (name) return new Result(true, tokenCount(n)>=2 ? "assistant_name_plus_speech" : "assistant_name_only");
         if (repair) return new Result(true,"repair_phrase");
 
-        // Natural speech may interrupt without a wake word, but keep this directed enough
-        // that arbitrary TV/room sentences do not constantly take ownership of the turn.
-        if (tokenCount(n)>=3 && n.length()>=10 && looksDirectedNatural(n)) return new Result(true,"meaningful_human_speech");
+        // Natural human interruption: accept short directed repairs/questions as well as longer speech.
+        if (tokenCount(n)>=2 && n.length()>=5 && looksDirectedNatural(n)) return new Result(true,"directed_short_speech");
+        if (tokenCount(n)>=3 && n.length()>=10) return new Result(true,"meaningful_human_speech");
         return new Result(false,"not_explicit_enough");
     }
 
@@ -42,7 +43,7 @@ public final class BargeInPolicy {
 
     private static boolean looksDirectedNatural(String n){
         return n.matches("^(я|мне|меня|мой|моя|мы|нам|давай|слушай|смотри|скажи|расскажи|объясни|продолж\\p{L}*|повтори|нет|но|а)\\b.*")
-                || n.matches("^(кто|что|где|когда|как|почему|зачем|сколько|какой|какая|какие|можешь|помнишь|знаешь)\\b.*");
+                || n.matches("^(кто|что|где|когда|как|почему|зачем|сколько|какой|какая|какие|можешь|помнишь|знаешь|в каком|в какой)\\b.*");
     }
     private static Set<String> tokens(String s){
         Set<String> out=new HashSet<>();
