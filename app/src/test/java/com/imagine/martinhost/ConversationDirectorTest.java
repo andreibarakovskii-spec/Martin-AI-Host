@@ -108,6 +108,17 @@ public class ConversationDirectorTest {
         assertTrue(second.text.contains("потому что я не понял прошлый ответ"));
     }
 
+    @Test public void realDeviceTrailingPhraseWaits() {
+        ConversationDirector d = new ConversationDirector();
+        d.decide("Има, давай поговорим",1000);
+        ConversationDirector.Decision first=d.decide("Ты уже начинаешь…",2500);
+        assertEquals(ConversationDirector.Kind.IGNORE,first.kind);
+        assertEquals("user_turn_incomplete_wait",first.reason);
+        ConversationDirector.Decision second=d.decide("отвечать раньше чем я закончил",3600);
+        assertEquals(ConversationDirector.Kind.RESPOND,second.kind);
+        assertTrue(second.text.contains("Ты уже начинаешь… отвечать раньше чем я закончил"));
+    }
+
     @Test public void continuationAfterEarlyAssistantStartReconstructsUserTurn() {
         ConversationDirector d = new ConversationDirector();
         ConversationDirector.Decision first=d.decide("Има, расскажи про новый голос",1000);
