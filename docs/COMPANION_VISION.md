@@ -107,6 +107,33 @@ Do not use transient ML tracking IDs as identity. Future confidence-based person
 
 Avatar v1: lightweight expressive presence. Avatar v2: character creator. Avatar v3: 3D/VRM-like character, blendshapes, gaze, lip sync, gestures and emotion. Do not block Companion Core on avatar realism.
 
+### AI AVATAR reference — what to adopt
+
+The external AI AVATAR companion app is a useful product/UX reference, not a code dependency. Useful ideas to adopt:
+- avatar identity persists independently from the current chat/session;
+- create/customize the avatar separately from conversation runtime;
+- emotional state is visible continuously, not only while speaking;
+- lip sync should follow actual generated audio timing rather than text timing;
+- avatar presentation should be full-screen/simple enough that the character feels present, while voice interaction remains primary;
+- customization/outfits can be layered later without changing Companion Core;
+- background-call style interaction is valuable because IMA must remain useful when the app is not the foreground focus.
+
+Do not copy its architecture blindly. IMA must keep memory, personality, voice identity, perception and avatar as separate modules. The avatar is the visual body of one persistent companion identity, not the source of memory/personality. Privacy-sensitive person context should remain local-first and user-controlled.
+
+### Avatar runtime contract
+
+Introduce a backend-neutral `AvatarState`/`AvatarController` boundary so Companion Core can drive any future 2D/3D renderer without knowing Godot/VRM implementation details.
+
+Suggested state inputs:
+- activity: idle, listening, thinking, speaking, interrupted, sleeping/background;
+- emotion: neutral, warm, calm, empathetic, happy, playful, excited, curious, confident;
+- energy/intensity: 0..1;
+- gaze/attention target;
+- speaking amplitude/viseme timing from real PCM;
+- short gestures/events from Conversation Director.
+
+The avatar must never block voice startup. If rendering stalls or is disabled, conversation must continue normally.
+
 ## 10. Development stages
 
 1. Companion Core / natural voice.
@@ -138,6 +165,8 @@ Primary moat: Personal Memory Graph + Relationship Model + Adaptive Personality 
 ## 14. Immediate implementation decision
 
 Keep Piper as tested production fallback. Begin IMA Voice Engine v1 as a benchmark-driven parallel backend. First milestone: select a license-compatible architecture, establish Android ARM benchmark harness, prove Russian speech with controllable prosody and <500 ms first-PCM target, then integrate behind the existing speaker interface. Do not remove Piper until the new backend wins real-device tests.
+
+For avatar work, define the renderer-neutral Avatar Runtime contract now, but keep implementation lightweight until natural conversation, ShouldSpeak and Memory Engine v1 are stable. Lip-sync must consume real synthesized PCM/amplitude/viseme data when available.
 
 ## Continuity rule
 
