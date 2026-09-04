@@ -17,19 +17,32 @@ public final class BargeInPolicy {
         if (n.isBlank()) return new Result(false,"blank");
 
         boolean stop = n.matches(".*\\b(стоп|погоди|подожди|стой|замолчи|хватит|перебью|пауза)\\b.*");
-        boolean repair = n.matches(".*\\b(нет не так|я про другое|я имел в виду|я имела в виду|не речь а|мне нужна|мне нужен|я просил|я просила)\\b.*");
+        boolean repair = n.matches(".*\\b(нет не так|я про другое|я имел в виду|я имела в виду|не речь а|мне нужна|мне нужен|я просил|я просила|я не договорил|я не договорила)\\b.*");
         boolean name = ImaWakeMatcher.mentionsIma(n) || hasWord(n,"ассистент");
 
         if (stop) return new Result(true,"stop_word");
+
+        // Echo protection stays above all semantic heuristics. Once a candidate is
+        // clearly not IMA's own TTS, however, unfinished human speech gets the floor.
         if (looksLikeEcho(n, norm(currentAssistantSpeech))) return new Result(false,"similar_to_tts");
-        // During active TTS even saying only the assistant name is a clear bid for the floor.
         if (name) return new Result(true, tokenCount(n)>=2 ? "assistant_name_plus_speech" : "assistant_name_only");
         if (repair) return new Result(true,"repair_phrase");
 
+        // Human-like turn taking: if the person is visibly continuing an unfinished
+        // thought, pause IMA immediately and let ConversationDirector collect the rest.
+        if (ConversationDirector.looksStronglyIncomplete(transcript)
+                || ConversationDirector.looksLikeContinuationStart(n)) {
+            return new Result(true,"unfinished_user_turn");
+        }
+
         int tokens=tokenCount(n);
+        if (tokens>=2 && n.length()>=7 && looksLikeFloorClaim(n)) {
+            return new Result(true,"human_floor_claim");
+        }
         if (tokens>=3 && n.length()>=10 && looksDirectedNatural(n)) return new Result(true,"meaningful_human_speech");
-        // Real-device 0.12.1 showed useful two-word interruptions (e.g. "синтез речи")
-        // being lost. Accept compact non-echo interjections, but not long ambient room sentences.
+
+        // Useful compact two-word interruptions are accepted after echo rejection,
+        // while common ambient acknowledgements remain ignored.
         if (tokens==2 && n.length()>=5 && n.length()<=24 && !looksAmbientShort(n)) return new Result(true,"short_interjection");
         return new Result(false,"not_explicit_enough");
     }
@@ -44,8 +57,12 @@ public final class BargeInPolicy {
     }
 
     private static boolean looksDirectedNatural(String n){
-        return n.matches("^(я|мне|меня|мой|моя|мы|нам|давай|слушай|смотри|скажи|расскажи|объясни|продолж\\p{L}*|повтори|нет|но|а)\\b.*")
+        return n.matches("^(я|ты|вы|мне|меня|мой|моя|мы|нам|давай|слушай|смотри|скажи|расскажи|объясни|продолж\\p{L}*|повтори|нет|но|а|это|сейчас|тут|только)\\b.*")
                 || n.matches("^(кто|что|где|когда|как|почему|зачем|сколько|какой|какая|какие|можешь|помнишь|знаешь|в каком|в какой)\\b.*");
+    }
+
+    private static boolean looksLikeFloorClaim(String n){
+        return n.matches("^(ты|вы|я|мы|нет|подожди|погоди|сейчас|только|во первых|во вторых|смотри|слушай|дело в том|я вот|ты уже|я еще|я ещё)\\b.*");
     }
 
     private static boolean looksAmbientShort(String n){
