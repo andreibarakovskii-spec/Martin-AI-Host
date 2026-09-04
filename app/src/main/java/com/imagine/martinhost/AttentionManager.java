@@ -18,7 +18,7 @@ public final class AttentionManager {
     }
 
     static boolean mentionsAssistant(String s) {
-        return containsWord(s, "има") || containsWord(s, "ima") || containsWord(s, "ассистент");
+        return ImaWakeMatcher.mentionsIma(s) || containsWord(s, "ассистент");
     }
 
     static boolean looksLikeStopOrRepair(String s) {
