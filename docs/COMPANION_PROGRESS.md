@@ -65,21 +65,27 @@ Implemented:
 - detailed primary/fallback voice architecture recorded in `docs/IMA_VOICE_ENGINE.md`;
 - generic edit-distance matching for the 3-letter wake name was removed after CI exposed a false wake on «зима»; only observed safe aliases are accepted now.
 
-Key commits on the 0.12.2 branch:
-- `a2be273a623cac474b8c67148bec55f0e5d480ad` — tolerant IMA wake matcher;
-- `f28ba7a16162a06f793144722b24fba469e153c9` — attention gate uses IMA matcher;
-- `cf9efafc1e16ccfd753be20113891804c730fba8` — tuned barge-in policy from Realme evidence;
-- `498fe8d7e5d8cc6d75de72310815e5d444986c38` — barge-in regression tests;
-- `bbfa15eee0642ad37053bd2101ac592e7f6b121b` — 0.12.2 version bump;
-- `eb2b0061a70eb844121bc9c4826c083a0986b72a` — IMA Voice Engine primary/fallback plan;
-- `164a35bab4ad297a389e0b48dbbcd93777643a5e` — fix wake matcher false positive found by CI.
+### Human-like turn completion / endpointing added 2026-09-04
+User requirement: IMA must not jump in just because there was a short pause. If the sentence is semantically unfinished, she should wait; if she already started speaking and the user continues the same unfinished thought, IMA should stop, collect the rest, reconstruct the full user turn and only then answer.
+
+Implemented in `ConversationDirector`:
+- strong incomplete-clause detection for dangling connectors/prepositions and common unfinished Russian constructions (`и`, `но`, `если`, `потому что`, `я хотел`, `мне нужно`, etc.);
+- incomplete directed turns are held in `pendingUserTurn` and return `IGNORE / user_turn_incomplete_wait` so the runtime goes back to listening instead of answering;
+- the next STT chunk within 12 seconds is stitched onto the pending clause before routing to the LLM;
+- a 5-second continuation repair window reconstructs a just-submitted user turn when a barge-in begins with a continuation such as `и еще`, `а еще`, `потому что`, `то есть`, `просто`, `точнее`;
+- split fragments are not separately written into working memory; the reconstructed full turn is observed once;
+- regression tests cover incomplete sentence waiting, trailing connectors, continuation after early assistant start, and normal complete-sentence behavior.
+
+Commits:
+- `85b992e03f4aa909140e95536535f8f761654a83` — semantic user-turn completion and reconstruction;
+- `9fe45fbc5fe13dbfb82bcf2039262f4085cc4297` — regression tests for human-like endpointing.
 
 ## 0.12.2 CI / APK status
 - run #307 / `33856432286` failed one unit regression: `ImaWakeMatcherTest.rejectsUnrelatedWords` because generic fuzzy matching treated «зима» as IMA; fixed in commit `164a35b`.
 - run #308 / `33856681488` on commit `164a35b`: unit tests and Android debug build **PASS**; APK integrity check **PASS**; APK artifact uploaded successfully.
 - APK artifact: `imagination-0.12.2-APK`, artifact id `9930531241`, artifact digest `sha256:1ecd39d58857e364cd0afa26df4e44eac6fe7d466d9d8699e26e4e5131ae3504` (digest of artifact ZIP).
 - extracted APK SHA-256: `b25843d09d2375e5d83ec8d02a0173995aa87b39b416184f70b6f291308d5f26`.
-- emulator/native voice smoke for run #308 was still running when this handoff entry was written; do not call full CI green until that final step completes. The APK itself has already passed compile/tests/integrity checks and is available for real-device testing.
+- new endpointing regression CI: run #312 / `33863026106` on commit `9fe45fbc...`; queued when this entry was written. Do not call the new endpointing build validated until this run passes.
 
 ## IMA Voice Engine foundation already present
 Backend-neutral speaker session contract exists:
@@ -88,16 +94,17 @@ Backend-neutral speaker session contract exists:
 Current Piper layer has `ImaProsodyPlanner` profiles such as neutral, warm, calm, empathetic, happy, playful, excited, curious and confident. This is only a control/fallback layer over a fixed voice, **not** the final expressive IMA voice.
 
 ## Immediate next work
-1. Finish emulator/native smoke for 0.12.2 and record the result.
-2. Real-device test 0.12.2 on the user's Realme with power saver OFF; specifically test IMA/Nima/Imma/Ema/Tima/Sima address variants, «зима» false-wake rejection, short barge-ins, repeated interruptions, first-audio latency and native heap growth.
-3. Implement `InterruptedResponseState` with response id, actual spoken text/offset, remaining semantic units, and explicit resume intent.
-4. Migrate `CompanionActivity` streaming assembly to explicit `beginResponse -> appendResponse -> finishResponse/cancelResponse` so the same abstraction can host the future generative voice engine.
-5. Instrument ARM latency by stage: LLM speakable text -> prosody -> synthesis start -> first PCM -> AudioTrack audible start.
-6. Add per-turn native memory telemetry and repeated 5/15/30-minute retention tests.
-7. Build the generative voice candidate benchmark harness behind the same speaker abstraction. Irina stays fallback only.
-8. Add richer semantic prosody packets independent of Piper parameters: emotion, energy, pace, emphasis, pause strength, final contour and optional safe non-verbal events.
-9. Continue Conversation Behavior / `ShouldSpeak`, then Memory Engine v1 after turn-taking is dependable.
-10. Avatar Runtime remains planned but must not delay voice/conversation work.
+1. Finish CI for the human-like endpointing changes and build a fresh real-device APK only after tests pass.
+2. Real-device test the new endpointing: pause mid-sentence after connectors, continue after 0.5–2 s, and deliberately continue talking just as IMA begins to speak; verify reconstructed full user text in diagnostics.
+3. Tune acoustic endpoint timing only from real-device evidence; avoid simply adding a long fixed delay to every completed sentence.
+4. Implement `InterruptedResponseState` with response id, actual spoken text/offset, remaining semantic units, and explicit resume intent.
+5. Migrate `CompanionActivity` streaming assembly to explicit `beginResponse -> appendResponse -> finishResponse/cancelResponse` so the same abstraction can host the future generative voice engine.
+6. Instrument ARM latency by stage: LLM speakable text -> prosody -> synthesis start -> first PCM -> AudioTrack audible start.
+7. Add per-turn native memory telemetry and repeated 5/15/30-minute retention tests.
+8. Build the generative voice candidate benchmark harness behind the same speaker abstraction. Irina stays fallback only.
+9. Add richer semantic prosody packets independent of Piper parameters: emotion, energy, pace, emphasis, pause strength, final contour and optional safe non-verbal events.
+10. Continue Conversation Behavior / `ShouldSpeak`, then Memory Engine v1 after turn-taking is dependable.
+11. Avatar Runtime remains planned but must not delay voice/conversation work.
 
 ## Product direction summary
 IMA is a persistent personal AI companion, not a party host. Core sequence:
