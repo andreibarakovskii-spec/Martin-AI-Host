@@ -9,7 +9,12 @@ public class BargeInPolicyTest {
     @Test public void explicitStopInterrupts(){assertTrue(p.evaluate("Стоп, погоди", "Сейчас я расскажу длинную историю").accepted);}
     @Test public void assistantNamePlusSpeechInterrupts(){assertTrue(p.evaluate("IMA, я про другое", "Сейчас расскажу про погоду").accepted);}
     @Test public void russianNamePlusSpeechInterrupts(){assertTrue(p.evaluate("Има, подожди", "Сейчас расскажу про погоду").accepted);}
-    @Test public void commonSttVariantOfImaInterrupts(){assertTrue(p.evaluate("Иму привет, я хотел спросить", "Продолжаю рассказ").accepted);}
+    @Test public void observedSttVariantOfImaInterrupts(){assertTrue(p.evaluate("Нима", "Продолжаю рассказ").accepted);}
+    @Test public void assistantNameAloneInterrupts(){assertTrue(p.evaluate("IMA", "Продолжаю").accepted);}
+    @Test public void compactTwoWordInterjectionInterrupts(){
+        BargeInPolicy.Result r=p.evaluate("Синтез речи", "Продолжаю длинный ответ про архитектуру");
+        assertTrue(r.accepted);assertEquals("short_interjection",r.reason);
+    }
     @Test public void naturalMultiwordSpeechInterrupts(){
         BargeInPolicy.Result r=p.evaluate("Я живу в Дзержинске", "Сейчас расскажу про эпизодическую память");
         assertTrue(r.accepted);assertEquals("meaningful_human_speech",r.reason);
@@ -21,6 +26,5 @@ public class BargeInPolicyTest {
         BargeInPolicy.Result r=p.evaluate("Ситуация развивается довольно быстро", "Ситуация развивается довольно быстро, поэтому продолжим");
         assertFalse(r.accepted);assertEquals("similar_to_tts",r.reason);
     }
-    @Test public void nameAloneIsNotEnough(){assertFalse(p.evaluate("IMA", "Продолжаю").accepted);}
     @Test public void stopWinsEvenWhenTtsContainsStop(){assertTrue(p.evaluate("стоп", "Чтобы остановить таймер, скажи стоп").accepted);}
 }
