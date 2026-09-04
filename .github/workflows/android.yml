@@ -85,3 +85,4 @@ jobs:
             companion-core-screen.png
             logcat.txt
             app/build/reports/tests/
+# rebuild after wake-matcher false-positive fix
