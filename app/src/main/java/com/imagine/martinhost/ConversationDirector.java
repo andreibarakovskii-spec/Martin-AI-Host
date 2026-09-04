@@ -24,6 +24,12 @@ public final class ConversationDirector {
     private long lastDirectedAtMs;
     private long continuationWindowMs = 45_000L;
 
+    // Human-like endpointing state. Strongly incomplete user clauses are kept open instead of
+    // immediately producing an answer. The next recognized chunk is stitched onto this text.
+    private String pendingUserTurn = "";
+    private long pendingUserTurnAtMs;
+    private String lastDirectedRaw = "";
+
     public void setContinuationWindowMs(long value) {
         continuationWindowMs = Math.max(5_000L, Math.min(180_000L, value));
     }
@@ -31,38 +37,70 @@ public final class ConversationDirector {
     public void reset() {
         conversationActive = false;
         lastDirectedAtMs = 0L;
+        pendingUserTurn = "";
+        pendingUserTurnAtMs = 0L;
+        lastDirectedRaw = "";
         workingMemory.reset();
     }
 
     public String currentTopic(){return workingMemory.activeTopic();}
     public int topicRevision(){return workingMemory.topicRevision();}
+    public boolean hasPendingUserTurn(){return !pendingUserTurn.isBlank();}
+    public String pendingUserTurn(){return pendingUserTurn;}
 
     public Decision decide(String transcript, long nowMs) {
-        String raw = transcript == null ? "" : transcript.trim();
+        String incoming = transcript == null ? "" : transcript.trim();
+        if (incoming.isBlank()) {
+            return new Decision(Kind.IGNORE, "", "blank", AttentionManager.Attention.AMBIENT);
+        }
+
+        String raw = incoming;
+        if (!pendingUserTurn.isBlank() && nowMs - pendingUserTurnAtMs <= 12_000L) {
+            raw = joinUserChunks(pendingUserTurn, incoming);
+            pendingUserTurn = "";
+            pendingUserTurnAtMs = 0L;
+        } else if (!lastDirectedRaw.isBlank()
+                && nowMs - lastDirectedAtMs <= 5_000L
+                && looksLikeContinuationStart(AttentionManager.normalize(incoming))) {
+            // Safety net for the case where IMA already started answering but the user was still
+            // finishing the same thought. Barge-in cancels playback, then we reconstruct the whole turn.
+            raw = joinUserChunks(lastDirectedRaw, incoming);
+        }
+
         String n = AttentionManager.normalize(raw);
         boolean inWindow = conversationActive && nowMs - lastDirectedAtMs <= continuationWindowMs;
         AttentionManager.Attention a = attention.classify(raw, inWindow);
 
-        if (raw.isBlank()) return new Decision(Kind.IGNORE, "", "blank", a);
-
-        // Observe every nonblank transcript before routing. Unrelated room speech is marked AMBIENT;
-        // semantically related speech can become short-lived dialogue context without forcing IMA to speak.
-        workingMemory.observe(raw,a,nowMs);
-
+        // Special commands must stay immediate even if their wording happens to end with a connector.
         if (isStop(n)) {
             lastDirectedAtMs = nowMs;
+            lastDirectedRaw = raw;
             return new Decision(Kind.STOP, "", "stop_or_interrupt", AttentionManager.Attention.DIRECT);
         }
         if (isContinue(n)) {
-            markActive(nowMs);
+            markActive(nowMs, raw);
             return new Decision(Kind.CONTINUE, "", "continue_previous_answer", AttentionManager.Attention.DIRECT);
         }
+
+        // If the utterance is clearly addressed to IMA / part of the live dialogue but sounds
+        // grammatically unfinished, do not jump in. Keep listening for the rest of the sentence.
+        if (a != AttentionManager.Attention.AMBIENT && looksStronglyIncomplete(raw)) {
+            pendingUserTurn = raw;
+            pendingUserTurnAtMs = nowMs;
+            conversationActive = true;
+            lastDirectedAtMs = nowMs;
+            return new Decision(Kind.IGNORE, "", "user_turn_incomplete_wait", a);
+        }
+
+        // Observe only the reconstructed turn, not each split fragment separately.
+        workingMemory.observe(raw,a,nowMs);
+
         if (looksLikeVision(n)) {
-            markActive(nowMs);
+            markActive(nowMs, raw);
             return new Decision(Kind.VISION, stripAssistantName(raw), "vision_request", a);
         }
         if (looksLikeMusic(n)) {
-            markActive(nowMs);
+            markActive(nowMs, raw);
             return new Decision(Kind.MUSIC, raw, "music_request", a);
         }
         if (a == AttentionManager.Attention.AMBIENT) {
@@ -77,13 +115,38 @@ public final class ConversationDirector {
         }
         String live=workingMemory.promptContext(nowMs);
         if(!live.isBlank())q=q+live;
-        markActive(nowMs);
+        markActive(nowMs, raw);
         return new Decision(Kind.RESPOND, q, looksLikeRepair(n) ? "repair" : (a == AttentionManager.Attention.DIRECT ? "direct" : "continuation"), a);
     }
 
-    private void markActive(long nowMs) {
+    private void markActive(long nowMs, String raw) {
         conversationActive = true;
         lastDirectedAtMs = nowMs;
+        lastDirectedRaw = raw == null ? "" : raw.trim();
+    }
+
+    static boolean looksStronglyIncomplete(String raw) {
+        if (raw == null) return false;
+        String n = AttentionManager.normalize(stripAssistantName(raw));
+        if (n.isBlank()) return false;
+        // Strong grammatical tails: connectors/prepositions that normally require a continuation.
+        if (n.matches(".*\\b(и|а|но|или|если|когда|пока|хотя|чтобы|потому что|так как|который|которая|которые|которое|где|куда|откуда|зачем|почему|в|на|к|с|со|из|от|до|для|без|про|о|об|по|у|через|между|перед|после)$")) return true;
+        // Common unfinished Russian speech constructions.
+        if (n.matches(".*\\b(я хотел|я хотела|я хочу|мне нужно|мне надо|можешь|можешь ли|скажи мне|расскажи мне|дело в том|смысл в том|проблема в том)$")) return true;
+        return false;
+    }
+
+    static boolean looksLikeContinuationStart(String n) {
+        if (n == null || n.isBlank()) return false;
+        return n.matches("^(и еще|а еще|но|потому что|так как|то есть|просто|который|которая|которые|которое|я хотел сказать|я хотела сказать|в смысле|точнее)\\b.*");
+    }
+
+    static String joinUserChunks(String first, String second) {
+        String a = first == null ? "" : first.trim();
+        String b = second == null ? "" : second.trim();
+        if (a.isBlank()) return b;
+        if (b.isBlank()) return a;
+        return a + " " + b;
     }
 
     static boolean isStop(String n) {
