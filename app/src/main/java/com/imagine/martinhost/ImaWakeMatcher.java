@@ -2,7 +2,7 @@ package com.imagine.martinhost;
 
 import java.util.Locale;
 
-/** Tolerant matcher for the short assistant name IMA when STT introduces small errors. */
+/** Tolerant matcher for the short assistant name IMA when STT introduces small observed errors. */
 public final class ImaWakeMatcher {
     private ImaWakeMatcher() {}
 
@@ -19,34 +19,9 @@ public final class ImaWakeMatcher {
         if (token == null || token.isBlank()) return false;
         String t = token.toLowerCase(Locale.ROOT).replace('ё','е');
         if (t.equals("ima") || t.equals("има") || t.equals("имма") || t.equals("имаа") || t.equals("иму")) return true;
-        // Common Russian STT substitutions observed on-device for the short wake name.
-        if (t.equals("нима") || t.equals("ема") || t.equals("сима") || t.equals("тима")) return true;
-        // Keep fuzzy matching deliberately narrow: only 3–4 char Cyrillic tokens one edit from "има".
-        if (t.length() >= 3 && t.length() <= 4 && isCyrillic(t)) return levenshtein(t, "има") <= 1;
-        return false;
-    }
-
-    private static boolean isCyrillic(String s) {
-        for (int i=0;i<s.length();i++) {
-            char c=s.charAt(i);
-            if (c<'а' || c>'я') return false;
-        }
-        return true;
-    }
-
-    private static int levenshtein(String a, String b) {
-        int[] prev=new int[b.length()+1];
-        int[] cur=new int[b.length()+1];
-        for(int j=0;j<=b.length();j++) prev[j]=j;
-        for(int i=1;i<=a.length();i++){
-            cur[0]=i;
-            for(int j=1;j<=b.length();j++){
-                int cost=a.charAt(i-1)==b.charAt(j-1)?0:1;
-                cur[j]=Math.min(Math.min(cur[j-1]+1,prev[j]+1),prev[j-1]+cost);
-            }
-            int[] tmp=prev;prev=cur;cur=tmp;
-        }
-        return prev[b.length()];
+        // Only observed on-device substitutions are accepted here. Do not use generic edit-distance
+        // matching for a 3-letter wake name: it turns ordinary words such as «зима» into false wakes.
+        return t.equals("нима") || t.equals("ема") || t.equals("сима") || t.equals("тима");
     }
 
     private static String normalize(String value) {
