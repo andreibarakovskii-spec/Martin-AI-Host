@@ -22,13 +22,15 @@ public final class BargeInPolicy {
 
         if (stop) return new Result(true,"stop_word");
         if (looksLikeEcho(n, norm(currentAssistantSpeech))) return new Result(false,"similar_to_tts");
-        // A short wake/name utterance during active TTS is itself a directed interruption.
+        // During active TTS even saying only the assistant name is a clear bid for the floor.
         if (name) return new Result(true, tokenCount(n)>=2 ? "assistant_name_plus_speech" : "assistant_name_only");
         if (repair) return new Result(true,"repair_phrase");
 
-        // Natural human interruption: accept short directed repairs/questions as well as longer speech.
-        if (tokenCount(n)>=2 && n.length()>=5 && looksDirectedNatural(n)) return new Result(true,"directed_short_speech");
-        if (tokenCount(n)>=3 && n.length()>=10) return new Result(true,"meaningful_human_speech");
+        int tokens=tokenCount(n);
+        if (tokens>=3 && n.length()>=10 && looksDirectedNatural(n)) return new Result(true,"meaningful_human_speech");
+        // Real-device 0.12.1 showed useful two-word interruptions (e.g. "синтез речи")
+        // being lost. Accept compact non-echo interjections, but not long ambient room sentences.
+        if (tokens==2 && n.length()>=5 && n.length()<=24 && !looksAmbientShort(n)) return new Result(true,"short_interjection");
         return new Result(false,"not_explicit_enough");
     }
 
@@ -45,6 +47,11 @@ public final class BargeInPolicy {
         return n.matches("^(я|мне|меня|мой|моя|мы|нам|давай|слушай|смотри|скажи|расскажи|объясни|продолж\\p{L}*|повтори|нет|но|а)\\b.*")
                 || n.matches("^(кто|что|где|когда|как|почему|зачем|сколько|какой|какая|какие|можешь|помнишь|знаешь|в каком|в какой)\\b.*");
     }
+
+    private static boolean looksAmbientShort(String n){
+        return n.matches("^(ага|угу|ну да|ну ладно|вот так|там что|да ладно|очень хорошо|все нормально)$");
+    }
+
     private static Set<String> tokens(String s){
         Set<String> out=new HashSet<>();
         for(String x:s.split(" "))if(x.length()>=3)out.add(x);
