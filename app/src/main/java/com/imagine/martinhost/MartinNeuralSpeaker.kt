@@ -21,6 +21,9 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
  private val preparing=AtomicBoolean(false)
  private val generation=AtomicInteger(0)
  private val pendingSpeak=AtomicInteger(0)
+ private val responseOpen=AtomicBoolean(false)
+ @Volatile private var responseEmotion="neutral"
+ @Volatile private var responseEnergy=.55f
  @Volatile private var engine: FastVoiceEngine?=null
  @Volatile private var track: AudioTrack?=null
  @Volatile private var ready=false
@@ -65,6 +68,22 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   val p=app.getSharedPreferences("martin",0)
   speakInternal(text,p.getString("local_voice","F1")?:"F1",p.getFloat("local_voice_speed",1f),emotion,energy)
  }
+ override fun beginResponse(emotion:String,energy:Float){
+  if(closed)return
+  responseEmotion=emotion.ifBlank{"neutral"};responseEnergy=energy.coerceIn(0f,1f);responseOpen.set(true)
+  DiagnosticRecorder.get(app).event("tts_session_begin","generation=${generation.get()};emotion=$responseEmotion;energy=$responseEnergy;model=irina")
+ }
+ override fun appendResponse(text:String,emotion:String,energy:Float){
+  if(text.isBlank()||closed)return
+  if(!responseOpen.get())beginResponse(emotion,energy)
+  val selectedEmotion=if(emotion.isBlank())responseEmotion else emotion
+  val selectedEnergy=if(energy.isFinite())energy.coerceIn(0f,1f) else responseEnergy
+  val p=app.getSharedPreferences("martin",0)
+  DiagnosticRecorder.get(app).event("tts_session_append","generation=${generation.get()};chars=${text.length};queue_depth=${pendingSpeak.get()+1}")
+  speakInternal(text,p.getString("local_voice","F1")?:"F1",p.getFloat("local_voice_speed",1f),selectedEmotion,selectedEnergy)
+ }
+ override fun finishResponse(){if(responseOpen.compareAndSet(true,false))DiagnosticRecorder.get(app).event("tts_session_finish","generation=${generation.get()};queued=${pendingSpeak.get()}")}
+ override fun cancelResponse(){responseOpen.set(false);stop()}
  fun speak(text:String){speak(text,"neutral",.55f)}
  fun previewLocal(text:String,voice:String,speed:Float){stop();speakInternal(text,voice,speed,"warm",.55f)}
  private fun speakInternal(text:String,requestedVoice:String,requestedSpeed:Float,emotion:String,energy:Float){
@@ -72,7 +91,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   val token=generation.get();val voice=LocalVoiceProfiles.valid(requestedVoice);val baseSpeed=requestedSpeed.coerceIn(.85f,1.15f)
   val queueDepth=pendingSpeak.incrementAndGet()
   val log=DiagnosticRecorder.get(app)
-  if(queueDepth>1)log.event("tts_session_append","generation=$token;queue_depth=$queueDepth;chars=${text.length}")
+  if(queueDepth>1)log.event("tts_queue_append","generation=$token;queue_depth=$queueDepth;chars=${text.length}")
   log.event("tts_request","generation=$token;provider=ima-voice-v1;backend=piper-vits;model=irina;voice=$voice;pcm_stream=true;emotion=$emotion;energy=$energy;queue_depth=$queueDepth")
   enqueue {
    var localTrack:AudioTrack?=null
@@ -185,7 +204,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
- override fun stop(){bargePaused=false;DiagnosticRecorder.get(app).event("tts_stop_requested","stream=true;ima_voice=v1");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
+ override fun stop(){responseOpen.set(false);bargePaused=false;pendingSpeak.set(0);DiagnosticRecorder.get(app).event("tts_stop_requested","stream=true;ima_voice=v1");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
  override fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
  override fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
 }
