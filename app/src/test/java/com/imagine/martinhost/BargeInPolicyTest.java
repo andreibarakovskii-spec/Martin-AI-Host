@@ -17,7 +17,19 @@ public class BargeInPolicyTest {
     }
     @Test public void naturalMultiwordSpeechInterrupts(){
         BargeInPolicy.Result r=p.evaluate("Я живу в Дзержинске", "Сейчас расскажу про эпизодическую память");
-        assertTrue(r.accepted);assertEquals("meaningful_human_speech",r.reason);
+        assertTrue(r.accepted);assertEquals("human_floor_claim",r.reason);
+    }
+    @Test public void unfinishedThoughtInterruptsAndKeepsFloor(){
+        BargeInPolicy.Result r=p.evaluate("Ты уже начинаешь…", "Я уже начала отвечать на вопрос");
+        assertTrue(r.accepted);assertEquals("unfinished_user_turn",r.reason);
+    }
+    @Test public void continuationTailInterrupts(){
+        BargeInPolicy.Result r=p.evaluate("И ещё я хотел добавить про голос", "Продолжаю свой ответ");
+        assertTrue(r.accepted);assertEquals("unfinished_user_turn",r.reason);
+    }
+    @Test public void userSaysTheyWereNotFinished(){
+        BargeInPolicy.Result r=p.evaluate("Я не договорил, а ты уже отвечаешь", "Продолжаю свой ответ");
+        assertTrue(r.accepted);assertEquals("repair_phrase",r.reason);
     }
     @Test public void directedContinuationInterrupts(){assertTrue(p.evaluate("Продолжай говорить про память", "Сейчас расскажу про другое").accepted);}
     @Test public void unrelatedRoomSentenceDoesNotInterrupt(){assertFalse(p.evaluate("На улице проехала красная машина", "Продолжаю ответ").accepted);}
