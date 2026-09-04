@@ -2,6 +2,11 @@
 
 Updated: 2026-09-04
 
+> ## READ THIS FIRST IN EVERY NEW CHAT
+> This project is **imagination**. The default assistant is **IMA** («Има»).
+> Do **not** treat Martin as the current product/persona and do not restart from the old party-host concept. `Martin-*` names may still exist only as legacy internal class/repository names while stable code is being migrated. Product discussions, UX, architecture and new code should use **IMA / imagination** terminology.
+> Always read this file together with `docs/COMPANION_PROGRESS.md` before proposing work. Continue from the exact branch/build/commit and priorities recorded there; do not ask the user to reconstruct prior chat history if these files contain the answer.
+
 ## New project direction
 
 The project is a persistent personal AI companion for Android phones/tablets and external speakers. Core promise: natural conversation, durable personal memory, relationship model, adaptive personality, controlled proactivity, skills/actions, and later a customizable avatar.
@@ -171,3 +176,5 @@ For avatar work, define the renderer-neutral Avatar Runtime contract now, but ke
 ## Continuity rule
 
 This file is the stable product/architecture specification. `docs/COMPANION_PROGRESS.md` is the operational handoff and must be updated after every meaningful implementation/test batch with branch/version/commit, working features, latest changes, bugs/limitations, next priorities, real-device status and architectural decisions.
+
+For future chats: start by reading both files from branch `companion-core-v1`. Treat **IMA/imagination** as authoritative current identity. Legacy Martin references are implementation debt only and must not be used to infer product direction.
