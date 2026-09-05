@@ -1,0 +1,22 @@
+[
+  {
+    "id": "warm",
+    "text": "Андрей, конечно. Давай спокойно разберёмся: я рядом и внимательно тебя слушаю.",
+    "instruction": "Speak Russian as a warm, natural young adult female companion. Soft confidence, gentle smile in the voice, no announcer tone, no exaggerated acting. Natural connected phrasing and short punctuation pauses only."
+  },
+  {
+    "id": "curious",
+    "text": "Слушай, а если сделать это немного иначе? Как тебе идея сначала проверить самый простой вариант?",
+    "instruction": "Speak Russian as a curious, lively young adult female companion. Natural rising question intonation, conversational rhythm, light energy, no robotic cadence, no long pauses between short phrases."
+  },
+  {
+    "id": "happy",
+    "text": "Вот! Теперь получилось намного лучше — именно такого живого результата я и хотела добиться.",
+    "instruction": "Speak Russian as a genuinely pleased young adult female companion. Bright but not childish, expressive emphasis on key words, one continuous natural utterance, no theatrical overacting."
+  },
+  {
+    "id": "calm_confident",
+    "text": "Главное сейчас — не спешить. Я проверю всё по порядку, найду причину и предложу самый надёжный вариант.",
+    "instruction": "Speak Russian as a calm, confident young adult female companion. Lower energy, clear semantic emphasis, warm timbre, natural sentence-final falling contour, no presenter voice."
+  }
+]
