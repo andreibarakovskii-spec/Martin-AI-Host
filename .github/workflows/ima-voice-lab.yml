@@ -1,0 +1,157 @@
+name: IMA Voice Lab
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ima-0.12.2-turntaking]
+    paths:
+      - 'voice_lab/**'
+      - '.github/workflows/ima-voice-lab.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  voice-lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libicu-dev libsndfile1 ffmpeg
+          python -m pip install --upgrade pip
+          pip install huggingface_hub numpy
+
+      - name: Build pinned CosyVoice.cpp candidate
+        run: |
+          git clone https://github.com/Lourdle/cosyvoice.cpp.git third_party/cosyvoice.cpp
+          cd third_party/cosyvoice.cpp
+          git checkout 19ce7cf9a3cd9c586f189b58572c17b87367104d
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOSYVOICE_USE_PCH=ON -DCOSYVOICE_SERVER_NO_WEBUI=ON
+          cmake --build build --target cosyvoice-cli -j2
+          find build -type f -name cosyvoice-cli -perm -111 -print
+
+      - name: Resolve and download model assets
+        run: |
+          mkdir -p voice_lab_cache/model voice_lab_cache/frontend
+          python - <<'PY'
+          from huggingface_hub import list_repo_files, hf_hub_download
+          from pathlib import Path
+          import json, shutil
+
+          model_repo='Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF'
+          files=list_repo_files(model_repo)
+          candidates=[f for f in files if f.lower().endswith('.gguf') and 'prompt' not in f.lower()]
+          def rank(f):
+              u=f.upper()
+              prefs=['Q4_K_M','Q4_K_S','Q5_K_M','Q6_K','Q8_0','F16']
+              return next((i for i,p in enumerate(prefs) if p in u),999), len(f)
+          candidates=sorted(candidates,key=rank)
+          if not candidates: raise SystemExit('No CosyVoice GGUF model found')
+          model_file=candidates[0]
+          src=hf_hub_download(model_repo,model_file)
+          dst=Path('voice_lab_cache/model/model.gguf'); shutil.copy2(src,dst)
+
+          # Prefer a ready prompt_speech file if the conversion repo distributes one.
+          prompt_candidates=[f for f in files if f.lower().endswith('.gguf') and 'prompt' in f.lower()]
+          prompt_path=''
+          if prompt_candidates:
+              src=hf_hub_download(model_repo,prompt_candidates[0])
+              dstp=Path('voice_lab_cache/frontend/prompt_speech.gguf'); shutil.copy2(src,dstp); prompt_path=str(dstp)
+
+          # Frontend ONNX models are needed only when there is no reusable prompt_speech.
+          if not prompt_path:
+              repos=[model_repo,'FunAudioLLM/Fun-CosyVoice3-0.5B-2512','QwenAudio/Fun-CosyVoice3-0.5B-2512']
+              token=None; camp=None; source_repo=None
+              for repo in repos:
+                  try: fs=list_repo_files(repo)
+                  except Exception: continue
+                  token=next((f for f in fs if f.lower().endswith('.onnx') and ('speech_token' in f.lower() or 'tokenizer' in f.lower())),None)
+                  camp=next((f for f in fs if f.lower().endswith('.onnx') and 'campplus' in f.lower()),None)
+                  if token and camp: source_repo=repo; break
+              if not source_repo: raise SystemExit('Could not resolve frontend ONNX assets')
+              for f,name in [(token,'speech_tokenizer.onnx'),(camp,'campplus.onnx')]:
+                  src=hf_hub_download(source_repo,f); shutil.copy2(src,Path('voice_lab_cache/frontend')/name)
+
+          Path('voice_lab_cache/assets.json').write_text(json.dumps({
+              'model_repo':model_repo,'model_file':model_file,'prompt_speech':prompt_path
+          },indent=2),encoding='utf-8')
+          print(Path('voice_lab_cache/assets.json').read_text())
+          PY
+
+      - name: Prepare reusable seed speaker
+        run: |
+          CLI=$(find third_party/cosyvoice.cpp/build -type f -name cosyvoice-cli -perm -111 | head -1)
+          test -n "$CLI"
+          if [ ! -s voice_lab_cache/frontend/prompt_speech.gguf ]; then
+            curl --fail --location --retry 4 --retry-delay 3 \
+              https://raw.githubusercontent.com/QwenAudio/CosyVoice/main/asset/zero_shot_prompt.wav \
+              -o voice_lab_cache/frontend/reference.wav
+            "$CLI" \
+              --frontend-only \
+              --speech-tokenizer voice_lab_cache/frontend/speech_tokenizer.onnx \
+              --campplus voice_lab_cache/frontend/campplus.onnx \
+              --prompt-audio voice_lab_cache/frontend/reference.wav \
+              --prompt-text '希望你以后能够做的比我还好呦。' \
+              --prompt-speech-output voice_lab_cache/frontend/prompt_speech.gguf \
+              --verbose 2>&1 | tee voice_lab_cache/frontend/frontend.log
+          fi
+          test -s voice_lab_cache/frontend/prompt_speech.gguf
+
+      - name: Generate four expressive Russian samples - baseline
+        run: |
+          CLI=$(find third_party/cosyvoice.cpp/build -type f -name cosyvoice-cli -perm -111 | head -1)
+          python voice_lab/run_lab.py \
+            --cli "$CLI" \
+            --model voice_lab_cache/model/model.gguf \
+            --prompt-speech voice_lab_cache/frontend/prompt_speech.gguf \
+            --out-dir voice_lab_out \
+            --pass-name baseline \
+            --threads 2
+          python voice_lab/analyze_audio.py voice_lab_out/baseline/*.wav --out voice_lab_out/baseline/report.json
+
+      - name: Auto-refine from acoustic report
+        run: |
+          python voice_lab/refine_from_report.py voice_lab_out/baseline/report.json --out voice_lab_out/refinement.txt
+          CLI=$(find third_party/cosyvoice.cpp/build -type f -name cosyvoice-cli -perm -111 | head -1)
+          REFINEMENT=$(cat voice_lab_out/refinement.txt)
+          python voice_lab/run_lab.py \
+            --cli "$CLI" \
+            --model voice_lab_cache/model/model.gguf \
+            --prompt-speech voice_lab_cache/frontend/prompt_speech.gguf \
+            --out-dir voice_lab_out \
+            --pass-name refined \
+            --threads 2 \
+            --refinement "$REFINEMENT"
+          python voice_lab/analyze_audio.py voice_lab_out/refined/*.wav --out voice_lab_out/refined/report.json
+
+      - name: Make comparison summary and spectrograms
+        run: |
+          mkdir -p voice_lab_out/spectrograms
+          for f in voice_lab_out/refined/*.wav; do
+            n=$(basename "$f" .wav)
+            ffmpeg -hide_banner -loglevel error -y -i "$f" -lavfi showspectrumpic=s=1200x500:legend=1 "voice_lab_out/spectrograms/${n}.png"
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('voice_lab_out/baseline/report.json').read_text())
+          r=json.loads(Path('voice_lab_out/refined/report.json').read_text())
+          md=f'''# IMA Voice Lab result\n\nCandidate: CosyVoice3 0.5B / cosyvoice.cpp pinned 19ce7cf.\n\n- Baseline objective score: **{b['mean_score']}**\n- Refined objective score: **{r['mean_score']}**\n- Baseline max internal gap: **{b['max_gap_s']} s**\n- Refined max internal gap: **{r['max_gap_s']} s**\n- Refined candidate passes acoustic gap/clipping gate: **{r['candidate_ok_for_manual_listen']}**\n\nThe score is an engineering gate, not a substitute for human judgement of timbre/emotion.\n'''
+          Path('voice_lab_out/SUMMARY.md').write_text(md,encoding='utf-8')
+          print(md)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ima-voice-lab-audio-and-logs
+          path: |
+            voice_lab_out/
+            voice_lab_cache/assets.json
+            voice_lab_cache/frontend/frontend.log
+          if-no-files-found: warn
+          retention-days: 14
