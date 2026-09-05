@@ -6,10 +6,13 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
-/** IMA Voice v1: hot local female TTS + backend-neutral emotion/prosody planning. */
+/** IMA Voice runtime: expressive planner + seamless PCM pipeline; Piper/Irina is the current fallback backend. */
 class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.Listener):MartinSpeaker {
  private val app=context.applicationContext
  private var loadedVoice=""
@@ -41,28 +44,28 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   }
  }
  override fun preArm(){
-  DiagnosticRecorder.get(app).event("tts_prearm","ready=$ready;engine_hot=${engine!=null};generation=${generation.get()};ima_voice=v1")
+  DiagnosticRecorder.get(app).event("tts_prearm","ready=$ready;engine_hot=${engine!=null};generation=${generation.get()};ima_voice_runtime=v2;backend=fallback_irina")
   if(!ready)prepare()
  }
  private suspend fun ensureVoice(requested:String){
   val voice=LocalVoiceProfiles.valid(requested)
   if(engine!=null){loadedVoice=voice;return}
   val log=DiagnosticRecorder.get(app)
-  log.event("tts_prepare_start","IMA-Voice-v1;backend=Piper/VITS;model=ru_RU-irina-medium;sherpa-onnx=1.13.2;threads=2;voice=$voice;pcm_stream=true;prosody=true")
+  log.event("tts_prepare_start","IMA-runtime-v2;backend=fallback-piper-vits;model=ru_RU-irina-medium;sherpa-onnx=1.13.2;threads=2;voice=$voice;pcm_stream=true;prefetch=true;prosody=true")
   val dir=FastVoiceModel.ensure(app.filesDir,{closed}){message->scope.launch(Dispatchers.Main){if(!closed)listener.onPreparing(message)}}
   if(closed)throw CancellationException()
-  withContext(Dispatchers.Main){if(!closed)listener.onPreparing("Прогрев женского голоса IMA…")}
+  withContext(Dispatchers.Main){if(!closed)listener.onPreparing("Прогрев резервного голоса IMA…")}
   val next=FastVoiceEngine(dir)
   try {
    val start=android.os.SystemClock.elapsedRealtime()
    val warm=next.synthesize("Готова.",voice,1f){closed}
    if(closed)throw CancellationException()
    if(warm.pcm16.isEmpty())throw IllegalStateException("Пустой прогрев голоса")
-   log.event("tts_warmup_end","ms=${android.os.SystemClock.elapsedRealtime()-start};samples=${warm.pcm16.size/2};model=irina")
+   log.event("tts_warmup_end","ms=${android.os.SystemClock.elapsedRealtime()-start};samples=${warm.pcm16.size/2};backend=fallback_irina")
    synchronized(engineLock){engine=next;loadedVoice=voice}
   }catch(e:Throwable){next.close();throw e}
   ready=true
-  log.event("tts_prepare_ready","voice=$voice;model=irina;hot=true;prosody=true")
+  log.event("tts_prepare_ready","voice=$voice;backend=fallback_irina;hot=true;prefetch=true;prosody=true")
  }
  override fun speak(text:String,emotion:String,energy:Float){
   val p=app.getSharedPreferences("martin",0)
@@ -71,7 +74,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
  override fun beginResponse(emotion:String,energy:Float){
   if(closed)return
   responseEmotion=emotion.ifBlank{"neutral"};responseEnergy=energy.coerceIn(0f,1f);responseOpen.set(true)
-  DiagnosticRecorder.get(app).event("tts_session_begin","generation=${generation.get()};emotion=$responseEmotion;energy=$responseEnergy;model=irina")
+  DiagnosticRecorder.get(app).event("tts_session_begin","generation=${generation.get()};emotion=$responseEmotion;energy=$responseEnergy;backend=fallback_irina")
  }
  override fun appendResponse(text:String,emotion:String,energy:Float){
   if(text.isBlank()||closed)return
@@ -92,7 +95,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   val queueDepth=pendingSpeak.incrementAndGet()
   val log=DiagnosticRecorder.get(app)
   if(queueDepth>1)log.event("tts_queue_append","generation=$token;queue_depth=$queueDepth;chars=${text.length}")
-  log.event("tts_request","generation=$token;provider=ima-voice-v1;backend=piper-vits;model=irina;voice=$voice;pcm_stream=true;emotion=$emotion;energy=$energy;queue_depth=$queueDepth")
+  log.event("tts_request","generation=$token;provider=ima-runtime-v2;backend=fallback-piper-vits;model=irina;voice=$voice;pcm_stream=true;prefetch=true;emotion=$emotion;energy=$energy;queue_depth=$queueDepth")
   enqueue {
    var localTrack:AudioTrack?=null
    try {
@@ -110,75 +113,113 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
     val min=AudioTrack.getMinBufferSize(rate,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4096)
     localTrack=AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
      .setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-     .setBufferSizeInBytes(min*2).setTransferMode(AudioTrack.MODE_STREAM).build()
-    track=localTrack;bargePaused=false
-    log.event("tts_chunks","count=${sentences.size};startup_chunk_chars=${sentences.firstOrNull()?.length?:0};unicode=NFKC;pcm_stream=true;style=${plan.style}")
-    var started=false
-    var written=0L
-    var streamChunkCount=0
-    val audioName="ima-voice-${android.os.SystemClock.elapsedRealtime()}"
+     .setBufferSizeInBytes(min*3).setTransferMode(AudioTrack.MODE_STREAM).build()
+    val playbackTrack=localTrack
+    track=playbackTrack;bargePaused=false
+    log.event("tts_chunks","count=${sentences.size};startup_chunk_chars=${sentences.firstOrNull()?.length?:0};unicode=NFKC;pcm_stream=true;prefetch=true;style=${plan.style}")
+
+    // Synthesis and playback are deliberately decoupled. Previously the native TTS callback
+    // wrote directly to AudioTrack, so synthesis of chunk N+1 only began after chunk N had
+    // already finished playing. On real ARM hardware this caused 2-3 second random gaps.
+    val pcmQueue=LinkedBlockingQueue<ByteArray>(48)
+    val poison=ByteArray(0)
+    val written=AtomicLong(0L)
+    val streamChunkCount=AtomicInteger(0)
+    val playbackStarted=AtomicBoolean(false)
+    val playbackThread=Thread({
+     try {
+      while(token==generation.get()&&!closed){
+       val pcm=pcmQueue.poll(60,TimeUnit.MILLISECONDS)?:continue
+       if(pcm===poison)break
+       if(pcm.isEmpty())continue
+       if(playbackStarted.compareAndSet(false,true)){
+        try{playbackTrack.play()}catch(_:Exception){break}
+        app.mainExecutor.execute{if(token==generation.get()&&!closed)listener.onStart()}
+        log.event("playback_start","ima-voice-prefetch-${android.os.SystemClock.elapsedRealtime()}")
+       }
+       while(bargePaused&&token==generation.get()&&!closed){try{Thread.sleep(8)}catch(_:InterruptedException){return@Thread}}
+       if(token!=generation.get()||closed)break
+       var off=0
+       while(off<pcm.size&&token==generation.get()&&!closed){
+        val n=playbackTrack.write(pcm,off,minOf(4096,pcm.size-off),AudioTrack.WRITE_BLOCKING)
+        if(n<=0)break
+        off+=n;written.addAndGet(n.toLong());streamChunkCount.incrementAndGet()
+       }
+       val level=rms(pcm,0,pcm.size)
+       val bands=spectrum(pcm,0,rate)
+       app.mainExecutor.execute{if(token==generation.get()&&!closed){listener.onLevel(level);listener.onSpectrum(bands)}}
+      }
+     }catch(_:Throwable){}
+    },"ima-pcm-playback-$token")
+    playbackThread.priority=Thread.NORM_PRIORITY+1
+    playbackThread.start()
+
+    fun offerPcm(bytes:ByteArray):Boolean{
+     while(token==generation.get()&&!closed){
+      if(pcmQueue.offer(bytes,40,TimeUnit.MILLISECONDS))return true
+     }
+     return false
+    }
+
     for((index,sentence) in sentences.withIndex()){
      if(token!=generation.get()||closed)throw CancellationException()
      val synthStart=android.os.SystemClock.elapsedRealtime()
      var firstPcmAt=0L
-     log.event("tts_synthesis_start","chunk=$index;style=${plan.style};$sentence")
+     log.event("tts_synthesis_start","chunk=$index;prefetch_depth=${pcmQueue.size};style=${plan.style};$sentence")
      e.synthesizeStreaming(sentence,voice,speed,plan.silenceScale,{token!=generation.get()||closed}){pcm->
       if(token!=generation.get()||closed)return@synthesizeStreaming false
       if(pcm.isEmpty())return@synthesizeStreaming true
       if(firstPcmAt==0L){
        firstPcmAt=android.os.SystemClock.elapsedRealtime()
-       log.event("tts_first_pcm","chunk=$index;ms=${firstPcmAt-synthStart};bytes=${pcm.size};style=${plan.style};model=irina")
+       log.event("tts_first_pcm","chunk=$index;ms=${firstPcmAt-synthStart};bytes=${pcm.size};style=${plan.style};backend=fallback_irina")
       }
-      if(!started){
-       try{localTrack.play()}catch(_:Exception){return@synthesizeStreaming false}
-       started=true
-       app.mainExecutor.execute{if(token==generation.get()&&!closed)listener.onStart()}
-       log.event("playback_start",audioName)
-      }
-      while(bargePaused&&token==generation.get()&&!closed){try{Thread.sleep(8)}catch(_:InterruptedException){return@synthesizeStreaming false}}
-      if(token!=generation.get()||closed)return@synthesizeStreaming false
       val voiced=ImaProsodyPlanner.applyGain(pcm,plan.gain)
-      var off=0
-      while(off<voiced.size&&token==generation.get()&&!closed){
-       val n=localTrack.write(voiced,off,minOf(4096,voiced.size-off),AudioTrack.WRITE_BLOCKING)
-       if(n<=0)return@synthesizeStreaming false
-       off+=n;written+=n;streamChunkCount++
-      }
-      val level=rms(voiced,0,voiced.size)
-      val bands=spectrum(voiced,0,rate)
-      app.mainExecutor.execute{if(token==generation.get()&&!closed){listener.onLevel(level);listener.onSpectrum(bands)}}
-      log.event("tts_pcm_push","chunk=$index;bytes=${voiced.size};written_total=$written;callback=$streamChunkCount;underruns=${localTrack.underrunCount};style=${plan.style}")
-      token==generation.get()&&!closed
+      val ok=offerPcm(voiced)
+      if(ok)log.event("tts_pcm_prefetch","chunk=$index;bytes=${voiced.size};queue=${pcmQueue.size};callbacks=${streamChunkCount.get()};style=${plan.style}")
+      ok
      }
-     if(index<sentences.lastIndex&&plan.sentencePauseMs>0&&token==generation.get()&&!closed){
-      val silence=ByteArray((rate*plan.sentencePauseMs/1000)*2)
-      var off=0
-      while(off<silence.size){val n=localTrack.write(silence,off,minOf(4096,silence.size-off),AudioTrack.WRITE_BLOCKING);if(n<=0)break;off+=n;written+=n}
+     val pause=boundaryPauseMs(sentence,plan.sentencePauseMs)
+     if(index<sentences.lastIndex&&pause>0&&token==generation.get()&&!closed){
+      offerPcm(ByteArray((rate*pause/1000)*2))
      }
-     log.event("tts_synthesis_end","chunk=$index;ms=${android.os.SystemClock.elapsedRealtime()-synthStart};first_pcm_ms=${if(firstPcmAt==0L)-1 else firstPcmAt-synthStart};written_total=$written;style=${plan.style}")
+     log.event("tts_synthesis_end","chunk=$index;ms=${android.os.SystemClock.elapsedRealtime()-synthStart};first_pcm_ms=${if(firstPcmAt==0L)-1 else firstPcmAt-synthStart};prefetch_depth=${pcmQueue.size};written_total=${written.get()};style=${plan.style}")
     }
-    if(started&&token==generation.get()&&!closed){
-     val frames=written/2L
-     val deadline=android.os.SystemClock.elapsedRealtime()+6000L
-     while(token==generation.get()&&!closed&&(localTrack.playbackHeadPosition.toLong() and 0xffffffffL)<frames){
+    offerPcm(poison)
+    while(playbackThread.isAlive&&token==generation.get()&&!closed){playbackThread.join(80)}
+
+    if(playbackStarted.get()&&token==generation.get()&&!closed){
+     val frames=written.get()/2L
+     val deadline=android.os.SystemClock.elapsedRealtime()+7000L
+     while(token==generation.get()&&!closed&&(playbackTrack.playbackHeadPosition.toLong() and 0xffffffffL)<frames){
       if(bargePaused){delay(10);continue}
       if(android.os.SystemClock.elapsedRealtime()>deadline)break
       delay(12)
      }
     }
     withContext(Dispatchers.Main){if(token==generation.get()&&!closed){listener.onLevel(0f);listener.onDone()}}
-   }catch(e:CancellationException){log.event("tts_cancelled","generation=$token;stream=true;model=irina")}
+   }catch(e:CancellationException){log.event("tts_cancelled","generation=$token;stream=true;backend=fallback_irina")}
    catch(e:Exception){log.event("tts_error",android.util.Log.getStackTraceString(e));withContext(Dispatchers.Main){if(token==generation.get()&&!closed)listener.onError("Ошибка локального синтеза: ${e.javaClass.simpleName}. Текст ответа доступен на экране.")}}
    finally{
-    pendingSpeak.decrementAndGet()
+    pendingSpeak.updateAndGet{v->if(v>0)v-1 else 0}
     bargePaused=false
     localTrack?.let{t->
-     log.event("playback_end","stream=true;consumed_frames=${t.playbackHeadPosition};cancelled=${token!=generation.get()};model=irina")
+     log.event("playback_end","stream=true;consumed_frames=${t.playbackHeadPosition};cancelled=${token!=generation.get()};backend=fallback_irina")
      if(track===t)track=null
      try{t.stop()}catch(_:Exception){}
      t.release()
     }
    }
+  }
+ }
+ private fun boundaryPauseMs(sentence:String,planned:Int):Int{
+  val s=sentence.trim()
+  if(s.isEmpty())return 0
+  return when{
+   s.endsWith("…")||s.endsWith("...")->planned.coerceIn(90,150)
+   s.endsWith("?")||s.endsWith("!")->planned.coerceIn(55,105)
+   s.endsWith(".")->planned.coerceIn(45,90)
+   s.endsWith(",")||s.endsWith(";")||s.endsWith(":")->planned.coerceIn(25,60)
+   else->0 // never create a pause merely because a transport chunk ended
   }
  }
  override fun pauseForBargeIn():Boolean{
@@ -204,7 +245,7 @@ class MartinNeuralSpeaker(context: Context, private val listener: MartinSpeaker.
   }
  }
  private fun rms(pcm:ByteArray,offset:Int,n:Int):Float{var sum=0.0;var count=0;var i=offset;while(i+1<offset+n){val x=((pcm[i+1].toInt() shl 8) or (pcm[i].toInt() and 255)).toShort().toDouble()/32768;sum+=x*x;count++;i+=2};return if(count==0)0f else (kotlin.math.sqrt(sum/count)*4).toFloat().coerceIn(0f,1f)}
- override fun stop(){responseOpen.set(false);bargePaused=false;pendingSpeak.set(0);DiagnosticRecorder.get(app).event("tts_stop_requested","stream=true;ima_voice=v1");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
+ override fun stop(){responseOpen.set(false);bargePaused=false;pendingSpeak.set(0);DiagnosticRecorder.get(app).event("tts_stop_requested","stream=true;ima_voice_runtime=v2");generation.incrementAndGet();val t=track;if(t!=null){try{t.pause();t.flush()}catch(_:Exception){}}}
  override fun releaseModel(){stop();ready=false;enqueue{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""};ready=false}}
  override fun close(){if(closed)return;closed=true;stop();ready=false;enqueue{try{synchronized(engineLock){engine?.close();engine=null;loadedVoice=""}}finally{scope.cancel();worker.close()}}}
 }
