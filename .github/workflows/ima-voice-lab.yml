@@ -27,9 +27,11 @@ jobs:
 
       - name: Build pinned CosyVoice.cpp candidate
         run: |
-          git clone https://github.com/Lourdle/cosyvoice.cpp.git third_party/cosyvoice.cpp
+          git clone --recurse-submodules https://github.com/Lourdle/cosyvoice.cpp.git third_party/cosyvoice.cpp
           cd third_party/cosyvoice.cpp
           git checkout 19ce7cf9a3cd9c586f189b58572c17b87367104d
+          git submodule sync --recursive
+          git submodule update --init --recursive
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOSYVOICE_USE_PCH=ON -DCOSYVOICE_SERVER_NO_WEBUI=ON
           cmake --build build --target cosyvoice-cli -j2
           find build -type f -name cosyvoice-cli -perm -111 -print
@@ -55,14 +57,12 @@ jobs:
           src=hf_hub_download(model_repo,model_file)
           dst=Path('voice_lab_cache/model/model.gguf'); shutil.copy2(src,dst)
 
-          # Prefer a ready prompt_speech file if the conversion repo distributes one.
           prompt_candidates=[f for f in files if f.lower().endswith('.gguf') and 'prompt' in f.lower()]
           prompt_path=''
           if prompt_candidates:
               src=hf_hub_download(model_repo,prompt_candidates[0])
               dstp=Path('voice_lab_cache/frontend/prompt_speech.gguf'); shutil.copy2(src,dstp); prompt_path=str(dstp)
 
-          # Frontend ONNX models are needed only when there is no reusable prompt_speech.
           if not prompt_path:
               repos=[model_repo,'FunAudioLLM/Fun-CosyVoice3-0.5B-2512','QwenAudio/Fun-CosyVoice3-0.5B-2512']
               token=None; camp=None; source_repo=None
