@@ -43,7 +43,7 @@ jobs:
           sha256sum "$APK" > apk-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: imagination-0.12.4-APK
+          name: imagination-0.12.5-APK
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             apk-sha256.txt
@@ -71,7 +71,7 @@ jobs:
             adb shell am instrument -w -e class com.imagine.martinhost.FastVoiceSmokeTest com.imagine.martinhost.diagnostics.test/androidx.test.runner.AndroidJUnitRunner > native-test.txt
             cat native-test.txt
             adb logcat -d > logcat.txt
-            grep -E "FastVoiceSmoke|Piper|IMA-Voice|ImaProsody|tts_prosody|Fatal signal|FATAL EXCEPTION|sherpa|onnx|companion_runtime|barge_|response_ready_to_first_audio|tts_first_pcm|tts_pcm_push" logcat.txt || true
+            grep -E "FastVoiceSmoke|Piper|IMA-Voice|ImaProsody|tts_prosody|Fatal signal|FATAL EXCEPTION|sherpa|onnx|companion_runtime|barge_|response_ready_to_first_audio|tts_first_pcm|tts_pcm_prefetch" logcat.txt || true
             grep -q "OK (1 test)" native-test.txt
             grep -q "ru_RU-irina-medium" logcat.txt
             if grep -q 'FATAL EXCEPTION' logcat.txt; then exit 1; fi
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: imagination-0.12.4-QA
+          name: imagination-0.12.5-QA
           path: |
             native-test.txt
             companion-core-screen.png
