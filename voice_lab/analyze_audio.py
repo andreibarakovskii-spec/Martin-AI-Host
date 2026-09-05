@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, math, wave
+import argparse, json, math, subprocess, tempfile, wave
 from pathlib import Path
 import numpy as np
 
@@ -14,13 +14,31 @@ def contiguous(mask):
     return out
 
 
+def load_pcm16(path:Path):
+    """Decode any WAV produced by the candidate (including IEEE float WAV) to PCM16."""
+    tmp=None
+    try:
+        try:
+            w=wave.open(str(path),'rb')
+        except wave.Error:
+            tmp=tempfile.NamedTemporaryFile(suffix='.wav',delete=False)
+            tmp.close()
+            subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(path),'-acodec','pcm_s16le',tmp.name],check=True)
+            w=wave.open(tmp.name,'rb')
+        with w:
+            rate=w.getframerate(); channels=w.getnchannels(); width=w.getsampwidth(); n=w.getnframes(); raw=w.readframes(n)
+        if width != 2:
+            raise RuntimeError(f"{path}: PCM conversion produced sample width={width}")
+        x=np.frombuffer(raw,dtype='<i2').astype(np.float32)/32768.0
+        if channels>1: x=x.reshape(-1,channels).mean(axis=1)
+        return rate,x
+    finally:
+        if tmp:
+            Path(tmp.name).unlink(missing_ok=True)
+
+
 def analyze(path:Path):
-    with wave.open(str(path),'rb') as w:
-        rate=w.getframerate(); channels=w.getnchannels(); width=w.getsampwidth(); n=w.getnframes(); raw=w.readframes(n)
-    if width != 2:
-        raise RuntimeError(f"{path}: expected PCM16 WAV, got sample width={width}")
-    x=np.frombuffer(raw,dtype='<i2').astype(np.float32)/32768.0
-    if channels>1: x=x.reshape(-1,channels).mean(axis=1)
+    rate,x=load_pcm16(path)
     duration=len(x)/rate if rate else 0.0
     if len(x)==0: return {"file":str(path),"duration_s":0,"error":"empty"}
     peak=float(np.max(np.abs(x)))
@@ -34,20 +52,17 @@ def analyze(path:Path):
         f=x[i:i+frame]
         vals.append(float(np.sqrt(np.mean(f*f)+1e-12)))
     vals=np.asarray(vals)
-    # Adaptive threshold avoids confusing low-volume voiced tails with gaps.
     p70=float(np.percentile(vals,70)) if len(vals) else 0
     threshold=max(0.006,min(0.025,p70*0.22))
     silent=vals<threshold
     segments=[]
     for a,b in contiguous(silent):
         dur=(b-a)*0.02
-        # Ignore leading/trailing silence; we care about holes inside speech.
         if a>1 and b<len(silent)-2 and dur>=0.18:
             segments.append({"start_s":round(a*0.02,3),"duration_s":round(dur,3)})
     max_gap=max([s["duration_s"] for s in segments],default=0)
     long_gaps=[s for s in segments if s["duration_s"]>=0.65]
 
-    # Crude spectral centroid for reproducible timbre-change diagnostics.
     sample=x[:min(len(x),rate*12)]
     if len(sample)>512:
         spec=np.abs(np.fft.rfft(sample*np.hanning(len(sample))))
